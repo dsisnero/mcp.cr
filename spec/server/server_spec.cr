@@ -792,4 +792,25 @@ describe MCP::Server::Server do
     server.prompt_registered?("p1").should be_false
     server.resource_registered?("res://1").should be_false
   end
+
+  it "MCP.prompt_msg should create a PromptMessage" do
+    msg = MCP.prompt_msg("Hello")
+    msg.should be_a(MCP::Protocol::PromptMessage)
+    msg.role.should eq(MCP::Protocol::Role::User)
+    msg.content.should be_a(MCP::Protocol::TextContentBlock)
+  end
+
+  it "MCP.text_resource_content should create TextResourceContents" do
+    content = MCP.text_resource_content("test://uri", "hello", "text/plain")
+    content.should be_a(MCP::Protocol::TextResourceContents)
+    content.uri.should eq("test://uri")
+    content.text.should eq("hello")
+  end
+
+  it "MCP.blob_resource_content should create BlobResourceContents" do
+    content = MCP.blob_resource_content("test://uri", "base64data", "application/octet-stream")
+    content.should be_a(MCP::Protocol::BlobResourceContents)
+    content.uri.should eq("test://uri")
+    content.blob.should eq("base64data")
+  end
 end

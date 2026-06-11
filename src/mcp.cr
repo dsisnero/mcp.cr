@@ -30,6 +30,18 @@ module MCP
   def self.arg(name : String, description : String? = nil, required : Bool? = nil) : Protocol::PromptArgument
     Protocol::PromptArgument.new(name, description, required: required)
   end
+
+  def self.prompt_msg(text : String, role : Protocol::Role = Protocol::Role::User) : Protocol::PromptMessage
+    Protocol::PromptMessage.new(role, Protocol::TextContentBlock.new(text))
+  end
+
+  def self.text_resource_content(uri : String, text : String, mime_type : String? = "text/plain") : Protocol::TextResourceContents
+    Protocol::TextResourceContents.new(uri: uri, text: text, mime_type: mime_type)
+  end
+
+  def self.blob_resource_content(uri : String, blob : String, mime_type : String? = nil) : Protocol::BlobResourceContents
+    Protocol::BlobResourceContents.new(uri, blob, mime_type)
+  end
 end
 
 require "./mcp/protocol"
