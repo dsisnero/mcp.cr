@@ -1,4 +1,5 @@
 require "json"
+require "json-schema"
 require "./ext/atomic"
 
 module MCP

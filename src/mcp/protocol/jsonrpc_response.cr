@@ -373,6 +373,13 @@ module MCP::Protocol
       def initialize(@properties = Hash(String, JSON::Any).new, @required = nil)
         @type = "object"
       end
+
+      # Generate a Tool::Input from a Crystal type using json-schema introspection.
+      # The type must include JSON::Serializable.
+      def self.from(t : T.class) : self forall T
+        json = T.json_schema.to_json
+        Input.from_json(json)
+      end
     end
   end
 

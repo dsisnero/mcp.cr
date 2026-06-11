@@ -135,6 +135,16 @@ module MCP::Server
       add_tool(name, description, input_schema, annotations: nil, output_schema: nil, &handler)
     end
 
+    # Auto-generate input schema from a Crystal type using json-schema introspection.
+    # The type must include JSON::Serializable.
+    def add_tool(name : String, description : String, input_type : T.class,
+                 annotations : MCP::Protocol::ToolAnnotations? = nil,
+                 output_schema : MCP::Protocol::Tool::Input? = nil,
+                 &handler : MCP::Protocol::CallToolRequestParams -> MCP::Protocol::CallToolResult) forall T
+      input = MCP::Protocol::Tool::Input.from(input_type)
+      add_tool(name, description, input, annotations: annotations, output_schema: output_schema, &handler)
+    end
+
     def add_tool(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
                  annotations : MCP::Protocol::ToolAnnotations? = nil,
                  output_schema : MCP::Protocol::Tool::Input? = nil,

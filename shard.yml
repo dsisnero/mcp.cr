@@ -6,7 +6,11 @@ authors:
 
 description: |
   Unofficial Crystal Shard for Model Context Protocol Servers and clients
-  
+
 crystal: '>= 1.16.1'
 
 license: MIT
+
+dependencies:
+  json-schema:
+    github: spider-gazelle/json-schema

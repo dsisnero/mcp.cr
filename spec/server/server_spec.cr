@@ -613,4 +613,35 @@ describe MCP::Server::Server do
     caps.extensions = {"io.modelcontextprotocol/ui" => JSON::Any.new("enabled")} of String => JSON::Any
     caps.extensions.should_not be_nil
   end
+
+  it "add_tool should auto-generate schema from Crystal type" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    input = MCP::Protocol::Tool::Input.from(TestToolArgs)
+    server.add_tool("typed-tool", "Auto schema tool", input) { |_|
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    }
+
+    server.tool_registered?("typed-tool").should be_true
+  end
+
+  it "add_tool convenience overload should accept Crystal type directly" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    server.add_tool("convenient-tool", "Direct type", TestToolArgs) { |_|
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    }
+
+    server.tool_registered?("convenient-tool").should be_true
+  end
+end
+
+class TestToolArgs
+  include JSON::Serializable
+  getter city : String
+  getter count : Int32?
 end
