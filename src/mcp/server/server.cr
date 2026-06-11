@@ -1,3 +1,4 @@
+require "base64"
 require "json"
 require "log"
 require "../shared"
@@ -17,8 +18,9 @@ module MCP::Server
   class ServerOptions < ProtocolOptions
     property capabilities : ServerCapabilities
     property? enforce_strict_capabilities : Bool = true
+    property pagination_limit : Int32?
 
-    def initialize(@capabilities, @enforce_strict_capabilities = true, @timeout = Shared::DEFAULT_REQUEST_TIMEOUT)
+    def initialize(@capabilities, @enforce_strict_capabilities = true, @timeout = Shared::DEFAULT_REQUEST_TIMEOUT, @pagination_limit = nil)
       super(@enforce_strict_capabilities, @timeout)
     end
   end
@@ -30,10 +32,16 @@ module MCP::Server
 
     @_on_initialized : Proc(Nil) = -> { }
     @_on_close : Proc(Nil) = -> { }
+    @_on_logging_level_change : Proc(MCP::Protocol::LoggingLevel, Nil) = ->(level : MCP::Protocol::LoggingLevel) { }
 
     @tools : Hash(String, RegisteredTool) = Hash(String, RegisteredTool).new
     @prompts : Hash(String, RegisteredPrompt) = Hash(String, RegisteredPrompt).new
     @resources : Hash(String, RegisteredResource) = Hash(String, RegisteredResource).new
+    @resource_templates : Hash(String, RegisteredResourceTemplate) = Hash(String, RegisteredResourceTemplate).new
+    @subscriptions = Set(String).new
+    @mutex = Mutex.new
+    @completion_handler : (MCP::Protocol::CompleteRequestParams -> MCP::Protocol::CompleteResult)?
+    property logging_level : MCP::Protocol::LoggingLevel = MCP::Protocol::LoggingLevel::Info
     getter server_options : ServerOptions
 
     def initialize(@server_info, @server_options)
@@ -58,6 +66,20 @@ module MCP::Server
         end
       end
 
+      # Internal handlers for completion
+      if capabilities.completions
+        request_handler(MCP::Protocol::CompletionComplete) do |request, _|
+          handle_complete(request.as(MCP::Protocol::CompleteRequestParams))
+        end
+      end
+
+      # Internal handlers for logging
+      if capabilities.logging
+        request_handler(MCP::Protocol::LoggingSetLevel) do |request, _|
+          handle_set_level(request.as(MCP::Protocol::SetLevelRequestParams))
+        end
+      end
+
       # Internal handlers for prompts
       if capabilities.prompts
         request_handler(MCP::Protocol::PromptsList) { |_, _| handle_list_prompts }
@@ -74,6 +96,12 @@ module MCP::Server
         end
         request_handler(MCP::Protocol::ResourcesTemplatesList) do |_, _|
           handle_list_resource_templates
+        end
+        request_handler(MCP::Protocol::ResourcesSubscribe) do |request, _|
+          handle_subscribe_resource(request.as(MCP::Protocol::SubscribeRequestParams))
+        end
+        request_handler(MCP::Protocol::ResourcesUnsubscribe) do |request, _|
+          handle_unsubscribe_resource(request.as(MCP::Protocol::UnsubscribeRequestParams))
         end
       end
     end
@@ -104,25 +132,35 @@ module MCP::Server
     end
 
     def add_tool(name : String, description : String, input_schema : MCP::Protocol::Tool::Input, &handler : MCP::Protocol::CallToolRequestParams -> MCP::Protocol::CallToolResult)
+      add_tool(name, description, input_schema, annotations: nil, output_schema: nil, &handler)
+    end
+
+    def add_tool(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
+                 annotations : MCP::Protocol::ToolAnnotations? = nil,
+                 output_schema : MCP::Protocol::Tool::Input? = nil,
+                 &handler : MCP::Protocol::CallToolRequestParams -> MCP::Protocol::CallToolResult)
       if capabilities.tools.nil?
         Log.error { " Failed to add tool #{name}: Server does not support tools capability" }
         raise ArgumentError.new("Server does not support tools capability. Enable it in ServerOptions")
       end
       Log.info { "Registering tool #{name}" }
-      @tools[name] = RegisteredTool.new(MCP::Protocol::Tool.new(name, input_schema, description), handler)
+      tool = MCP::Protocol::Tool.new(name, input_schema, description, annotations: annotations, output_schema: output_schema)
+      @tools[name] = RegisteredTool.new(tool, handler)
+      notify_tool_list_changed
     end
 
     def add_tools(tools : Array(RegisteredTool))
       if capabilities.tools.nil?
-        Log.error { " Failed to add tool #{name}: Server does not support tools capability" }
+        Log.error { "Failed to add tools: Server does not support tools capability" }
         raise ArgumentError.new("Server does not support tools capability. Enable it in ServerOptions")
       end
 
       Log.info { "Registering #{tools.size} tools" }
       tools.each do |rtool|
         Log.debug { "Registering tool: #{rtool.tool.name}" }
-        @tools[rtool.tool.name] = rt
+        @tools[rtool.tool.name] = rtool
       end
+      notify_tool_list_changed
     end
 
     def remove_tool(name : String) : Bool
@@ -135,6 +173,7 @@ module MCP::Server
       Log.debug {
         removed ? "Tool removed: #{name}" : "Tool not found: #{name}"
       }
+      notify_tool_list_changed if removed
       removed
     end
 
@@ -147,6 +186,7 @@ module MCP::Server
       res = tool_names.map { |name| remove_tool(name) }
       removed = res.count(&.== true)
       Log.info { removed > 0 ? "Removed #{removed} tools" : "No tools were removed" }
+      notify_tool_list_changed if removed > 0
       removed
     end
 
@@ -157,6 +197,7 @@ module MCP::Server
       end
       Log.info { "Registering prompt #{prompt.name}" }
       @prompts[prompt.name] = RegisteredPrompt.new(prompt, handler)
+      notify_prompt_list_changed
     end
 
     def add_prompt(name : String, &handler : MCP::Protocol::GetPromptRequestParams -> MCP::Protocol::GetPromptResult)
@@ -175,6 +216,7 @@ module MCP::Server
       end
 
       prompt_list.each { |rprompt| add_prompt(rprompt.prompt, rprompt.handler) }
+      notify_prompt_list_changed
     end
 
     def remove_prompt(name : String) : Bool
@@ -187,6 +229,7 @@ module MCP::Server
       Log.debug {
         removed ? "Prompt removed: #{name}" : "Prompt not found: #{name}"
       }
+      notify_prompt_list_changed if removed
       removed
     end
 
@@ -198,6 +241,7 @@ module MCP::Server
       res = names.map { |name| remove_prompt(name) }
       removed = res.count(&.== true)
       Log.info { removed > 0 ? "Removed #{removed} prompts" : "No prompts were removed" }
+      notify_prompt_list_changed if removed > 0
       removed
     end
 
@@ -208,11 +252,12 @@ module MCP::Server
       end
       Log.info { "Registering resource #{name} #{uri}" }
       @resources[uri] = RegisteredResource.new(MCP::Protocol::Resource.new(name, uri, description, mime_type), handler)
+      notify_resource_list_changed
     end
 
     def add_resources(resources : Array(RegisteredResource))
       if capabilities.resources.nil?
-        Log.error { " Failed to add resource #{name}: Server does not support resources capability" }
+        Log.error { "Failed to add resources: Server does not support resources capability" }
         raise ArgumentError.new("Server does not support resources capability.")
       end
 
@@ -221,6 +266,7 @@ module MCP::Server
         Log.debug { "Registering resource: #{rsc.resource.name} #{rsc.resource.uri}" }
         @resources[rsc.resource.uri] = rsc
       end
+      notify_resource_list_changed
     end
 
     def remove_resource(uri : String) : Bool
@@ -233,6 +279,7 @@ module MCP::Server
       Log.debug {
         removed ? "Resource removed: #{uri}" : "Resource not found: #{uri}"
       }
+      notify_resource_list_changed if removed
       removed
     end
 
@@ -245,6 +292,7 @@ module MCP::Server
       res = uris.map { |uri| remove_resource(uri) }
       removed = res.count(&.== true)
       Log.info { removed > 0 ? "Removed #{removed} resources" : "No resources were removed" }
+      notify_resource_list_changed if removed > 0
       removed
     end
 
@@ -260,6 +308,15 @@ module MCP::Server
     def list_roots(params : Hash(String, JSON::Any) = Hash(String, JSON::Any).new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListRootsResult
       Log.debug { "Listing roots with params: #{params}" }
       request(MCP::Protocol::ListRootsRequest.new(params), options).as(MCP::Protocol::ListRootsResult)
+    end
+
+    def create_elicitation(message : String, mode : String = "form",
+                           requested_schema : Hash(String, JSON::Any)? = nil,
+                           url : String? = nil, elicitation_id : String? = nil,
+                           options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ElicitResult
+      Log.debug { "Creating elicitation: #{message}" }
+      req = MCP::Protocol::CreateElicitationRequest.new(message, mode, requested_schema, url, elicitation_id)
+      request(req, options).as(MCP::Protocol::ElicitResult)
     end
 
     def send_logging_message(params : MCP::Protocol::LoggingMessageNotificationParams)
@@ -287,6 +344,103 @@ module MCP::Server
       notification(MCP::Protocol::PromptListChangedNotification.new)
     end
 
+    def subscribe_resource(uri : String) : Bool
+      if capabilities.resources.nil?
+        raise ArgumentError.new("Server does not support resources capability.")
+      end
+      @subscriptions.add(uri)
+      true
+    end
+
+    def unsubscribe_resource(uri : String) : Bool
+      if capabilities.resources.nil?
+        raise ArgumentError.new("Server does not support resources capability.")
+      end
+      @subscriptions.delete(uri) != nil
+    end
+
+    def subscribed?(uri : String) : Bool
+      @subscriptions.includes?(uri)
+    end
+
+    def tool_registered?(name : String) : Bool
+      @tools.has_key?(name)
+    end
+
+    def resource_registered?(uri : String) : Bool
+      @resources.has_key?(uri)
+    end
+
+    def add_resource_template(template : MCP::Protocol::ResourceTemplate, &handler : MCP::Protocol::ReadResourceRequestParams -> MCP::Protocol::ReadResourceResult)
+      if capabilities.resources.nil?
+        raise ArgumentError.new("Server does not support resources capability.")
+      end
+      Log.info { "Registering resource template #{template.name} #{template.uri_template}" }
+      @resource_templates[template.uri_template] = RegisteredResourceTemplate.new(template, handler)
+    end
+
+    def resource_template_registered?(uri_template : String) : Bool
+      @resource_templates.has_key?(uri_template)
+    end
+
+    def prompt_registered?(name : String) : Bool
+      @prompts.has_key?(name)
+    end
+
+    def set_completion_handler(&handler : MCP::Protocol::CompleteRequestParams -> MCP::Protocol::CompleteResult)
+      @completion_handler = handler
+    end
+
+    private def notify_tool_list_changed
+      return unless @transport
+      return unless capabilities.tools.try(&.list_changed)
+      send_tool_list_changed rescue nil
+    end
+
+    private def notify_prompt_list_changed
+      return unless @transport
+      return unless capabilities.prompts.try(&.list_changed)
+      send_prompt_list_changed rescue nil
+    end
+
+    private def notify_resource_list_changed
+      return unless @transport
+      return unless capabilities.resources.try(&.list_changed)
+      send_resource_list_changed rescue nil
+    end
+
+    def on_logging_level_change(&callback : MCP::Protocol::LoggingLevel ->)
+      @_on_logging_level_change = callback
+    end
+
+    private def handle_set_level(request : MCP::Protocol::SetLevelRequestParams) : MCP::Protocol::EmptyResult
+      Log.debug { "Handling set level request: #{request.level}" }
+      @logging_level = request.level
+      @_on_logging_level_change.try &.call(request.level)
+      MCP::Protocol::EmptyResult.new
+    end
+
+    private def handle_complete(request : MCP::Protocol::CompleteRequestParams) : MCP::Protocol::CompleteResult
+      Log.debug { "Handling completion request for: #{request.to_json}" }
+      if handler = @completion_handler
+        handler.call(request)
+      else
+        MCP::Protocol::CompleteResult.new(MCP::Protocol::CompleteResult::Completion.new)
+      end
+    end
+
+    private def handle_subscribe_resource(request : MCP::Protocol::SubscribeRequestParams) : MCP::Protocol::EmptyResult
+      Log.debug { "Handling subscribe resource request for: #{request.uri}" }
+      @subscriptions.add(request.uri)
+      MCP::Protocol::EmptyResult.new
+    end
+
+    private def handle_unsubscribe_resource(request : MCP::Protocol::UnsubscribeRequestParams) : MCP::Protocol::EmptyResult
+      Log.debug { "Handling unsubscribe resource request for: #{request.uri}" }
+      @subscriptions.delete(request.uri)
+      MCP::Protocol::EmptyResult.new
+    end
+
     private def handle_initialize(request : MCP::Protocol::InitializeRequestParams) : MCP::Protocol::InitializeResult
       Log.info { "Handling initialize request from client #{request.client_info.to_json}" }
       @client_capabilities = request.capabilities
@@ -306,10 +460,34 @@ module MCP::Server
     end
 
     private def handle_list_tools : MCP::Protocol::ListToolsResult
+      items = @tools.keys.sort!
+      result = paginate(items, nil)
       MCP::Protocol::ListToolsResult.new(
-        tools: @tools.values.map(&.tool),
-        next_cursor: nil
+        tools: result[:items].map { |name| @tools[name].tool },
+        next_cursor: result[:next_cursor]
       )
+    end
+
+    private def paginate(keys : Array(String), cursor : String?)
+      limit = server_options.pagination_limit
+      return {items: keys, next_cursor: nil} unless limit
+
+      start_idx = 0
+      if cursor
+        decoded = Base64.decode_string(cursor)
+        start_idx = keys.index!(decoded) + 1
+      end
+
+      slice = keys[start_idx, limit]?
+      return {items: keys, next_cursor: nil} unless slice
+
+      next_cursor = nil
+      if start_idx + limit < keys.size
+        last_key = slice.last
+        next_cursor = Base64.strict_encode(last_key)
+      end
+
+      {items: slice, next_cursor: next_cursor}
     end
 
     private def handle_call_tool(request : MCP::Protocol::CallToolRequestParams) : MCP::Protocol::CallToolResult
@@ -342,7 +520,9 @@ module MCP::Server
     end
 
     private def handle_list_resource_templates : MCP::Protocol::ListResourceTemplatesResult
-      MCP::Protocol::ListResourceTemplatesResult.new
+      MCP::Protocol::ListResourceTemplatesResult.new(
+        resource_templates: @resource_templates.values.map(&.template)
+      )
     end
 
     # Capability validation
@@ -371,7 +551,14 @@ module MCP::Server
           Log.error { "Server capability assertion failed: logging not supported" }
           raise "Server does not support logging (required for #{method})"
         end
-      when "notifications/resources/updated", "notifications/resources/list_changed"
+      when "notifications/resources/updated"
+        if capabilities.resources.nil?
+          raise "Server does not support notifying about resources (required for #{method})"
+        end
+        if capabilities.resources.try(&.subscribe).nil?
+          raise "Server does not support resource subscriptions (required for #{method})"
+        end
+      when "notifications/resources/list_changed"
         raise "Server does not support notifying about resources (required for method #{method})" unless capabilities.resources
       when "notifications/tools/list_changed"
         raise "Server does not support notifying of tool list changes (required for #{method})" unless capabilities.tools
@@ -382,7 +569,6 @@ module MCP::Server
       end
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     def assert_request_handler_capability(method : String)
       Log.trace { "Asserting request handler capability for method: #{method}" }
 
@@ -400,9 +586,13 @@ module MCP::Server
         if capabilities.prompts.nil?
           raise "Server does not support prompts (required for #{method})"
         end
-      when "resources/list", "resources/templates/list", "resources/read"
+      when "resources/list", "resources/templates/list", "resources/read", "resources/subscribe", "resources/unsubscribe"
         if capabilities.resources.nil?
           raise "Server does not support resources (required for #{method})"
+        end
+      when "completion/complete"
+        if capabilities.completions.nil?
+          raise "Server does not support completions (required for #{method})"
         end
       when "tools/call", "tools/list"
         if capabilities.tools.nil?
@@ -416,5 +606,6 @@ module MCP::Server
     record RegisteredTool, tool : MCP::Protocol::Tool, handler : (MCP::Protocol::CallToolRequestParams) -> MCP::Protocol::CallToolResult
     record RegisteredPrompt, prompt : MCP::Protocol::Prompt, handler : (MCP::Protocol::GetPromptRequestParams) -> MCP::Protocol::GetPromptResult
     record RegisteredResource, resource : MCP::Protocol::Resource, handler : (MCP::Protocol::ReadResourceRequestParams) -> MCP::Protocol::ReadResourceResult
+    record RegisteredResourceTemplate, template : MCP::Protocol::ResourceTemplate, handler : (MCP::Protocol::ReadResourceRequestParams) -> MCP::Protocol::ReadResourceResult
   end
 end

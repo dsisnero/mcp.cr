@@ -8,6 +8,11 @@ module MCP::Protocol
     getter annotations : Annotations?
     @[JSON::Field(key: "_meta")]
     getter meta : Hash(String, JSON::Any)?
+
+    def with_annotations(annotations : Annotations) : self
+      @annotations = annotations
+      self
+    end
   end
 
   struct TextContentBlock < ContentBlock
