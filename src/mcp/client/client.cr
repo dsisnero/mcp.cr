@@ -28,9 +28,16 @@ module MCP::Client
 
     getter! server_capabilities : ServerCapabilities
     getter! server_version : Implementation
-
     getter(capabilities : ClientCapabilities) { client_options.capabilities }
+
+    # Safe accessor for server capabilities (nil before initialization)
+    def server_capabilities? : ServerCapabilities?
+      @server_capabilities
+    end
+
     private getter roots : Hash(String, MCP::Protocol::Root)
+    @sampling_handler : (MCP::Protocol::CreateMessageRequestParams -> MCP::Protocol::CreateMessageResult)?
+    @elicitation_handler : (MCP::Protocol::CreateElicitationRequestParams -> MCP::Protocol::ElicitResult)?
 
     def initialize(@client_info, @client_options = ClientOptions.new)
       super(@client_options)
@@ -39,6 +46,18 @@ module MCP::Client
 
       if capabilities.roots
         request_handler(MCP::Protocol::RootsList) { |_, _| handle_list_roots }
+      end
+
+      if capabilities.sampling
+        request_handler(MCP::Protocol::SamplingCreateMessage) do |request, _|
+          handle_create_message(request.as(MCP::Protocol::CreateMessageRequestParams))
+        end
+      end
+
+      if capabilities.elicitation
+        request_handler(MCP::Protocol::ElicitationCreate) do |request, _|
+          handle_elicitation(request.as(MCP::Protocol::CreateElicitationRequestParams))
+        end
       end
     end
 
@@ -114,6 +133,8 @@ module MCP::Client
       case method
       when MCP::Protocol::SamplingCreateMessage
         raise "Client does not support sampling capability (required for #{method})" unless capabilities.sampling
+      when MCP::Protocol::ElicitationCreate
+        raise "Client does not support elicitation capability (required for #{method})" unless capabilities.elicitation
       when MCP::Protocol::RootsList
         raise "Client does not support roots capability (required for #{method})" unless capabilities.roots
       when MCP::Protocol::Ping
@@ -219,6 +240,36 @@ module MCP::Client
 
     def send_root_list_changed
       notification(MCP::Protocol::RootsListChangedNotification.new)
+    end
+
+    def set_sampling_handler(&handler : MCP::Protocol::CreateMessageRequestParams -> MCP::Protocol::CreateMessageResult)
+      @sampling_handler = handler
+    end
+
+    def set_elicitation_handler(&handler : MCP::Protocol::CreateElicitationRequestParams -> MCP::Protocol::ElicitResult)
+      @elicitation_handler = handler
+    end
+
+    private def handle_elicitation(request : MCP::Protocol::CreateElicitationRequestParams) : MCP::Protocol::ElicitResult
+      Log.debug { "Handling elicitation request: #{request.mode}" }
+      if handler = @elicitation_handler
+        handler.call(request)
+      else
+        MCP::Protocol::ElicitResult.new(action: MCP::Protocol::ActionType::Decline)
+      end
+    end
+
+    private def handle_create_message(request : MCP::Protocol::CreateMessageRequestParams) : MCP::Protocol::CreateMessageResult
+      Log.debug { "Handling create message request" }
+      if handler = @sampling_handler
+        handler.call(request)
+      else
+        MCP::Protocol::CreateMessageResult.new(
+          content: MCP::Protocol::TextContentBlock.new(""),
+          model: "default",
+          role: MCP::Protocol::Role::Assistant
+        )
+      end
     end
 
     private def handle_list_roots : MCP::Protocol::ListRootsResult

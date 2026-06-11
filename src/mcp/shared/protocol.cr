@@ -25,6 +25,7 @@ module MCP::Shared
 
   class RequestHandlerExtra
     include JSON::Serializable::Unmapped
+    property cancel_channel : Channel(Nil)?
   end
 
   abstract class Protocol
@@ -35,6 +36,7 @@ module MCP::Shared
     @notification_handlers = {} of String => JSONRPCNotification ->
     @response_handlers : Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
     @progress_handlers = {} of RequestId => ProgressCallback
+    @request_cancellers = {} of RequestId => Channel(Nil)
     property fallback_request_handler : ((JSONRPCRequest, RequestHandlerExtra) -> Result?)?
     property fallback_notification_handler : (JSONRPCNotification ->)?
 
@@ -81,6 +83,8 @@ module MCP::Shared
     private def do_close
       @response_handlers.clear
       @progress_handlers.clear
+      @request_cancellers.each_value(&.close)
+      @request_cancellers.clear
       @transport = nil
       on_close
 
@@ -92,6 +96,16 @@ module MCP::Shared
 
     private def on_notification(notification : JSONRPCNotification)
       Log.trace { "Received notification: #{notification.method}" }
+
+      # Handle cancellation by closing the request's cancel channel
+      if notification.method == MCP::Protocol::NotificationsCancelled
+        if params = notification.params.as?(MCP::Protocol::CancelledNotificationParams)
+          if channel = @request_cancellers[params.request_id]?
+            channel.close
+            @request_cancellers.delete(params.request_id)
+          end
+        end
+      end
 
       handler = @notification_handlers[notification.method]? || @fallback_notification_handler
       return unless handler
@@ -125,35 +139,46 @@ module MCP::Shared
         return
       end
 
-      begin
-        resp = handler.call(request, RequestHandlerExtra.new)
-        Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
-        if result = resp
-          @transport.try &.send(
-            JSONRPCResponse.new(id: request.id, result: result)
-          )
-        else
-          @transport.try &.send(
-            JSONRPCError.new(
-              request.id,
-              :internal_error,
-              "Internal error: Handler returned no result"
-            )
-          )
-        end
-      rescue error
-        Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
+      transport = @transport
+      cancel_channel = Channel(Nil).new
+      rid = request.id
+      @request_cancellers[rid] = cancel_channel if rid
+      extra = RequestHandlerExtra.new
+      extra.cancel_channel = cancel_channel
 
+      spawn do
         begin
-          @transport.try &.send(
-            JSONRPCError.new(
-              request.id,
-              :internal_error,
-              error.message || "Internal error"
+          resp = handler.call(request, extra)
+          Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
+          if result = resp
+            transport.try &.send(
+              JSONRPCResponse.new(id: request.id, result: result)
             )
-          )
-        rescue ex
-          Log.error(exception: ex) { "Failed to send error response" }
+          else
+            transport.try &.send(
+              JSONRPCError.new(
+                request.id,
+                :internal_error,
+                "Internal error: Handler returned no result"
+              )
+            )
+          end
+        rescue error
+          Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
+
+          begin
+            transport.try &.send(
+              JSONRPCError.new(
+                request.id,
+                :internal_error,
+                error.message || "Internal error"
+              )
+            )
+          rescue ex
+            Log.error(exception: ex) { "Failed to send error response" }
+          end
+        ensure
+          @request_cancellers.delete(rid) if rid
         end
       end
     end
@@ -285,7 +310,7 @@ module MCP::Shared
           when Exception
             raise result
           else
-            return result
+            result
           end
         when timeout(timeout)
           timeout_error = MCP::Protocol::MCPError.new(
