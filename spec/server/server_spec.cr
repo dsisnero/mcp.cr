@@ -1,5 +1,17 @@
 require "../spec_helper"
 
+class TestToolOutput
+  include JSON::Serializable
+  getter result : String
+  getter score : Int32?
+end
+
+class TestToolArgs
+  include JSON::Serializable
+  getter city : String
+  getter count : Int32?
+end
+
 describe MCP::Server::Server do
   it "remove_tool should remove a tool" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
@@ -656,16 +668,28 @@ describe MCP::Server::Server do
     output.properties.has_key?("result").should be_true
     output.properties.has_key?("score").should be_true
   end
-end
 
-class TestToolOutput
-  include JSON::Serializable
-  getter result : String
-  getter score : Int32?
-end
+  it "prompt arguments should be constructable via MCP.arg helper" do
+    arg = MCP.arg("name", description: "The name", required: true)
+    arg.should be_a(MCP::Protocol::PromptArgument)
+    arg.name.should eq("name")
+    arg.description.should eq("The name")
+    arg.required.should be_true
+  end
 
-class TestToolArgs
-  include JSON::Serializable
-  getter city : String
-  getter count : Int32?
+  it "Prompt.build should create a prompt with arguments" do
+    prompt = MCP::Protocol::Prompt.build("greet") do |b|
+      b.arg("name", "The name to greet", required: true)
+      b.arg("lang", "Language", required: false)
+    end
+
+    prompt.name.should eq("greet")
+    args = prompt.arguments
+    args.should_not be_nil
+    if args
+      args.size.should eq(2)
+      args[0].name.should eq("name")
+      args[1].required.should be_false
+    end
+  end
 end

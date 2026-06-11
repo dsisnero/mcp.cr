@@ -26,6 +26,10 @@ module MCP
       contents: [Protocol::TextResourceContents.new(text: content, uri: uri, mime_type: mime_type)] of Protocol::ResourceContents
     )
   end
+
+  def self.arg(name : String, description : String? = nil, required : Bool? = nil) : Protocol::PromptArgument
+    Protocol::PromptArgument.new(name, description, required: required)
+  end
 end
 
 require "./mcp/protocol"

@@ -256,6 +256,23 @@ module MCP::Protocol
 
     def initialize(@name, @description = nil, @arguments = nil, @title = nil, @meta = nil)
     end
+
+    # Fluent builder for creating prompts with arguments.
+    def self.build(name : String, description : String? = nil, title : String? = nil, &block : Builder ->) : Prompt
+      builder = Builder.new
+      block.call(builder)
+      Prompt.new(name, description, builder.arguments.empty? ? nil : builder.arguments, title)
+    end
+
+    # Accumulates PromptArgument entries for use with Prompt.build.
+    class Builder
+      getter arguments : Array(PromptArgument) = [] of PromptArgument
+
+      def arg(name : String, description : String? = nil, required : Bool? = nil) : self
+        @arguments << PromptArgument.new(name, description, required: required)
+        self
+      end
+    end
   end
 
   class ListPromptsResult < PaginatedResult
