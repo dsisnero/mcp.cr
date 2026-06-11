@@ -42,6 +42,10 @@ module MCP
   def self.blob_resource_content(uri : String, blob : String, mime_type : String? = nil) : Protocol::BlobResourceContents
     Protocol::BlobResourceContents.new(uri, blob, mime_type)
   end
+
+  def self.prompt_response(description : String? = nil, *messages : Protocol::PromptMessage) : Protocol::GetPromptResult
+    Protocol::GetPromptResult.new(messages.to_a, description)
+  end
 end
 
 require "./mcp/protocol"

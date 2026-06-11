@@ -828,4 +828,12 @@ describe MCP::Server::Server do
     content.uri.should eq("test://uri")
     content.blob.should eq("base64data")
   end
+
+  it "MCP.prompt_response should create GetPromptResult" do
+    msg = MCP.prompt_msg("Hello, world!")
+    result = MCP.prompt_response("A greeting prompt", msg)
+    result.should be_a(MCP::Protocol::GetPromptResult)
+    result.description.should eq("A greeting prompt")
+    result.messages.size.should eq(1)
+  end
 end
