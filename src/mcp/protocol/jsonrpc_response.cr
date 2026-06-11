@@ -381,6 +381,14 @@ module MCP::Protocol
         Input.from_json(json)
       end
     end
+
+    # Convenience alias for generating output schemas from Crystal types.
+    # Uses the same json-schema introspection as Tool::Input.from.
+    module Output
+      def self.from(t : T.class) : Input forall T
+        Input.from(t)
+      end
+    end
   end
 
   class ListToolsResult < PaginatedResult

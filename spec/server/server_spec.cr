@@ -638,6 +638,30 @@ describe MCP::Server::Server do
 
     server.tool_registered?("convenient-tool").should be_true
   end
+
+  it "add_tool should accept output_type for auto-generated output schema" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    server.add_tool("output-typed-tool", "With output", TestToolArgs, output_type: TestToolOutput) { |_|
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    }
+
+    server.tool_registered?("output-typed-tool").should be_true
+  end
+
+  it "Tool::Output.from should generate output schema from type" do
+    output = MCP::Protocol::Tool::Output.from(TestToolOutput)
+    output.properties.has_key?("result").should be_true
+    output.properties.has_key?("score").should be_true
+  end
+end
+
+class TestToolOutput
+  include JSON::Serializable
+  getter result : String
+  getter score : Int32?
 end
 
 class TestToolArgs

@@ -145,6 +145,16 @@ module MCP::Server
       add_tool(name, description, input, annotations: annotations, output_schema: output_schema, &handler)
     end
 
+    # Auto-generate both input and output schemas from Crystal types.
+    def add_tool(name : String, description : String, input_type : T.class,
+                 output_type : U.class,
+                 annotations : MCP::Protocol::ToolAnnotations? = nil,
+                 &handler : MCP::Protocol::CallToolRequestParams -> MCP::Protocol::CallToolResult) forall T, U
+      input = MCP::Protocol::Tool::Input.from(input_type)
+      oschema = MCP::Protocol::Tool::Output.from(output_type)
+      add_tool(name, description, input, annotations: annotations, output_schema: oschema, &handler)
+    end
+
     def add_tool(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
                  annotations : MCP::Protocol::ToolAnnotations? = nil,
                  output_schema : MCP::Protocol::Tool::Input? = nil,
