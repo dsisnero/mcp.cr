@@ -740,4 +740,28 @@ describe MCP::Server::Server do
     resp = received.receive
     resp.should be_a(MCP::Protocol::JSONRPCResponse)
   end
+
+  it "RequestHandlerExtra should expose extensions map to handlers" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    ext_received = Channel(Hash(String, JSON::Any)).new(1)
+
+    server.request_handler(MCP::Protocol::ToolsCall) do |_params, extra|
+      ext_received.send(extra.extensions)
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    request = MCP::Protocol::CallToolRequest.new(name: "any", arguments: {} of String => JSON::Any)
+    client_transport.send(request)
+
+    exts = ext_received.receive
+    exts.should be_a(Hash(String, JSON::Any))
+  end
 end

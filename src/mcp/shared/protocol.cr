@@ -26,6 +26,11 @@ module MCP::Shared
   class RequestHandlerExtra
     include JSON::Serializable::Unmapped
     property cancel_channel : Channel(Nil)?
+    property extensions : Hash(String, JSON::Any)
+
+    def initialize
+      @extensions = Hash(String, JSON::Any).new
+    end
   end
 
   abstract class Protocol
