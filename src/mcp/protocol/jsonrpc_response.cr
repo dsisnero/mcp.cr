@@ -97,7 +97,7 @@ module MCP::Protocol
 
   class ElicitResult < Result
     getter action : ActionType
-    getter content : Hash(String, JSON::Any)?
+    getter content : JSON::Any?
 
     def initialize(@action = ActionType::Cancel, @content = nil, @meta = nil)
       super(@meta)
@@ -133,9 +133,10 @@ module MCP::Protocol
     getter prompts : PromptsCapability?
     getter resources : ResourcesCapability?
     getter tools : ToolsCapability?
+    getter tasks : Hash(String, JSON::Any)?
 
     def initialize(@experimental = nil, @sampling = nil, @logging = nil, @completions = nil,
-                   @prompts = nil, @resources = nil, @tools = nil)
+                   @prompts = nil, @resources = nil, @tools = nil, @tasks = nil)
     end
 
     def with_experimental(**kw)
@@ -168,6 +169,12 @@ module MCP::Protocol
 
     def with_tools(list_changed : Bool? = nil)
       @tools = ToolsCapability.new(list_changed)
+      self
+    end
+
+    def with_tasks(**kw)
+      return self if kw.empty?
+      @tasks = JSON.parse(kw.to_json).as_h
       self
     end
 
@@ -339,11 +346,14 @@ module MCP::Protocol
     @[JSON::Field(key: "outputSchema")]
     getter output_schema : Input?
     getter annotations : ToolAnnotations?
+    getter icons : Array(Icon)?
+    getter execution : ToolExecution?
     @[JSON::Field(key: "_meta")]
     getter meta : Hash(String, JSON::Any)?
 
     def initialize(@name, @input_schema, @description = nil, @title = nil,
-                   @output_schema = nil, @annotations = nil, @meta = nil)
+                   @output_schema = nil, @annotations = nil, @icons = nil,
+                   @execution = nil, @meta = nil)
     end
 
     struct Input
@@ -363,7 +373,7 @@ module MCP::Protocol
     getter tools : Array(Tool)
 
     def initialize(@tools, @next_cursor = nil, @meta = nil)
-      super(@meta)
+      super(@next_cursor, @meta)
     end
   end
 

@@ -90,6 +90,16 @@ module MCP::Protocol
     end
   end
 
+  class ElicitationCompletionNotificationParams < Notification
+    @[JSON::Field(key: "elicitationId")]
+    getter elicitation_id : String
+    getter result : ElicitResult?
+
+    def initialize(@elicitation_id, @result = nil, @meta = nil)
+      super(@meta)
+    end
+  end
+
   class UknownParams < Notification
     def initialize(@meta = nil)
       super

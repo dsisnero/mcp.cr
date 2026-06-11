@@ -14,7 +14,8 @@ module MCP::Protocol
 
     Protocol.use_custom_json_discriminator "method", {"notifications/tools/list_changed": ToolListChangedNotification, "notifications/prompts/list_changed": PromptListChangedNotification, "notifications/resources/list_changed": ResourceListChangedNotification,
                                                       "notifications/resources/updated": ResourceUpdatedNotification, "notifications/roots/list_changed": RootsListChangedNotification,
-                                                      "notifications/message": LoggingMessageNotification, "notifications/initialized": InitializedNotification, "notifications/progress": ProgressNotification, "notifications/cancelled": CancelledNotification}, else: UknownNotification
+                                                      "notifications/message": LoggingMessageNotification, "notifications/initialized": InitializedNotification, "notifications/progress": ProgressNotification, "notifications/cancelled": CancelledNotification,
+                                                      "notifications/elicitation/complete": ElicitationCompletionNotification}, else: UknownNotification
   end
 
   class CancelledNotification < JSONRPCNotification
@@ -110,6 +111,14 @@ module MCP::Protocol
 
     def self.new
       PromptListChangedNotification.new(PromptListChangedNotificationParams.new)
+    end
+  end
+
+  class ElicitationCompletionNotification < JSONRPCNotification
+    getter params : ElicitationCompletionNotificationParams
+
+    def initialize(@params)
+      super(NotificationsElicitationComplete)
     end
   end
 

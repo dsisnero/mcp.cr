@@ -1,0 +1,6 @@
+[submodule "vendor/rmcp"]
+	path = vendor/rmcp
+	url = https://github.com/modelcontextprotocol/rust-sdk.git
+[submodule "vendor/mcp-golang"]
+	path = vendor/mcp-golang
+	url = https://github.com/metoro-io/mcp-golang.git

@@ -99,7 +99,7 @@ module MCP::Protocol
     getter max_tokens : Int32
 
     getter messages : Array(SamplingMessage)
-    getter metadata : JSON::Any
+    getter metadata : JSON::Any?
 
     @[JSON::Field(key: "modelPreferences")]
     getter model_preferences : ModelPreferences?
@@ -116,6 +116,29 @@ module MCP::Protocol
                    @temperature = nil, @stop_sequences = nil, @metadata = nil,
                    @model_preferences = nil, @meta = nil)
       super(@meta)
+    end
+  end
+
+  class CreateElicitationRequestParams < RequestParams
+    getter mode : String
+    getter message : String
+    @[JSON::Field(key: "requestedSchema")]
+    getter requested_schema : Hash(String, JSON::Any)?
+    getter url : String?
+    @[JSON::Field(key: "elicitationId")]
+    getter elicitation_id : String?
+
+    def initialize(@message, @mode = "form", @requested_schema = nil,
+                   @url = nil, @elicitation_id = nil, @meta = nil)
+      super(@meta)
+    end
+
+    def self.form(message : String, schema : Hash(String, JSON::Any)) : self
+      new(message: message, mode: "form", requested_schema: schema)
+    end
+
+    def self.url(message : String, url : String, elicitation_id : String) : self
+      new(message: message, mode: "url", url: url, elicitation_id: elicitation_id)
     end
   end
 
@@ -143,11 +166,11 @@ module MCP::Protocol
 
     property experimental : Hash(String, JSON::Any)?
     property roots : RootsCapability?
-
     property sampling : Hash(String, JSON::Any)?
     property elicitation : Hash(String, JSON::Any)?
+    property tasks : Hash(String, JSON::Any)?
 
-    def initialize(@experimental = nil, @sampling = nil, @elicitation = nil, @roots = nil)
+    def initialize(@experimental = nil, @sampling = nil, @elicitation = nil, @roots = nil, @tasks = nil)
     end
 
     def self.with_roots(list_changed : Bool? = nil)
@@ -161,8 +184,9 @@ module MCP::Protocol
     getter name : String
     getter title : String?
     getter version : String
+    getter icons : Array(Icon)?
 
-    def initialize(@name, @version, @title = nil)
+    def initialize(@name, @version, @title = nil, @icons = nil)
     end
   end
 

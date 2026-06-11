@@ -15,6 +15,10 @@ module MCP::Protocol
   SamplingCreateMessage  = "sampling/createMessage"
   ElicitationCreate      = "elicitation/create"
   Initialize             = "initialize"
+  TasksGet               = "tasks/get"
+  TasksList              = "tasks/list"
+  TasksCancel            = "tasks/cancel"
+  TasksResult            = "tasks/result"
 
   NotificationsToolsListChanged     = "notifications/tools/list_changed"
   NotificationsPromptsListChanged   = "notifications/prompts/list_changed"
@@ -25,4 +29,5 @@ module MCP::Protocol
   NotificationsInitialized          = "notifications/initialized"
   NotificationsProgress             = "notifications/progress"
   NotificationsCancelled            = "notifications/cancelled"
+  NotificationsElicitationComplete  = "notifications/elicitation/complete"
 end

@@ -12,7 +12,7 @@ module MCP::Protocol
       new(method, id, params)
     end
 
-    Protocol.use_custom_json_discriminator "method", {"ping": PingRequest, "initialize": InitializeRequest, "completion/complete": CompleteRequest, "logging/setLevel": SetLevelRequest, "prompts/get": GetPromptRequest, "prompts/list": ListPromptsRequest, "resources/list": ListResourcesRequest, "resources/templates/list": ListResourceTemplatesRequest, "resources/read": ReadResourceRequest, "resources/subscribe": SubscribeRequest, "resources/unsubscribe": UnsubscribeRequest, "tools/call": CallToolRequest, "tools/list": ListToolsRequest, "sampling/createMessage": CreateMessageRequest, "roots/list": ListRootsRequest}
+    Protocol.use_custom_json_discriminator "method", {"ping": PingRequest, "initialize": InitializeRequest, "completion/complete": CompleteRequest, "logging/setLevel": SetLevelRequest, "prompts/get": GetPromptRequest, "prompts/list": ListPromptsRequest, "resources/list": ListResourcesRequest, "resources/templates/list": ListResourceTemplatesRequest, "resources/read": ReadResourceRequest, "resources/subscribe": SubscribeRequest, "resources/unsubscribe": UnsubscribeRequest, "tools/call": CallToolRequest, "tools/list": ListToolsRequest, "sampling/createMessage": CreateMessageRequest, "elicitation/create": CreateElicitationRequest, "roots/list": ListRootsRequest}
   end
 
   class PingRequest < JSONRPCRequest
@@ -244,6 +244,22 @@ module MCP::Protocol
       )
 
       CreateMessageRequest.new(params)
+    end
+  end
+
+  class CreateElicitationRequest < JSONRPCRequest
+    getter params : CreateElicitationRequestParams
+
+    def initialize(@params)
+      super(method: ElicitationCreate)
+    end
+
+    def self.new(message : String, mode : String = "form",
+                 requested_schema : Hash(String, JSON::Any)? = nil,
+                 url : String? = nil, elicitation_id : String? = nil,
+                 meta : Hash(String, JSON::Any)? = nil)
+      params = CreateElicitationRequestParams.new(message, mode, requested_schema, url, elicitation_id, meta)
+      CreateElicitationRequest.new(params)
     end
   end
 
