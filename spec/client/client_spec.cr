@@ -115,8 +115,8 @@ describe MCP::Client::Client do
 
     client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
 
-    received_message = nil
-    client_transport.on_message { |msg| received_message = msg }
+    response_channel = Channel(MCP::Protocol::JSONRPCMessage).new(2)
+    client_transport.on_message { |msg| response_channel.send(msg) }
 
     wg = WaitGroup.new
 
@@ -130,6 +130,9 @@ describe MCP::Client::Client do
 
     wg.wait
 
+    # Drain init response
+    response_channel.receive
+
     server_capabilities = client.server_capabilities?
     server_capabilities.try &.tools.try &.list_changed.should be_nil
 
@@ -137,6 +140,7 @@ describe MCP::Client::Client do
 
     client_transport.send(request)
 
+    received_message = response_channel.receive
     received_message.is_a?(MCP::Protocol::JSONRPCResponse).should be_true
     resp = received_message.as(MCP::Protocol::JSONRPCResponse)
     request.id.should eq(resp.id)
@@ -254,6 +258,80 @@ describe MCP::Client::Client do
     client.send_root_list_changed
 
     root_list_changed_notification_received.should be_true
+  end
+
+  it "should handle sampling/createMessage requests from server" do
+    client = MCP::Client::Client.new(
+      client_info: MCP::Protocol::Implementation.new("test client", "1.0"),
+      client_options: MCP::Client::ClientOptions.new(
+        capabilities: MCP::Protocol::ClientCapabilities.new(sampling: Hash(String, JSON::Any).new)))
+
+    sampling_called = false
+    client.set_sampling_handler do |_|
+      sampling_called = true
+      MCP::Protocol::CreateMessageResult.new(
+        content: MCP::Protocol::TextContentBlock.new("response"),
+        model: "test/model",
+        role: MCP::Protocol::Role::Assistant
+      )
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(2)
+    server_transport.on_message { |msg| received.send(msg) }
+
+    spawn { client.connect(client_transport) }
+    Fiber.yield
+
+    # Drain init request from channel
+    received.receive
+
+    msg = MCP::Protocol::CreateMessageRequest.new(
+      messages: [{MCP::Protocol::Role::User, MCP::Protocol::TextContentBlock.new("hello")}],
+      max_tokens: 100,
+      metadata: {} of String => JSON::Any
+    )
+    server_transport.send(msg)
+
+    resp = received.receive
+    resp.should be_a(MCP::Protocol::JSONRPCResponse)
+    sampling_called.should be_true
+  end
+
+  it "should handle elicitation/create requests from server" do
+    client = MCP::Client::Client.new(
+      client_info: MCP::Protocol::Implementation.new("test client", "1.0"),
+      client_options: MCP::Client::ClientOptions.new(
+        capabilities: MCP::Protocol::ClientCapabilities.new(elicitation: Hash(String, JSON::Any).new)))
+
+    elicitation_called = false
+    client.set_elicitation_handler do |_|
+      elicitation_called = true
+      MCP::Protocol::ElicitResult.new(action: MCP::Protocol::ActionType::Accept)
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(2)
+    server_transport.on_message { |msg| received.send(msg) }
+
+    spawn { client.connect(client_transport) }
+    Fiber.yield
+
+    # Drain init request from channel
+    received.receive
+
+    msg = MCP::Protocol::CreateElicitationRequest.new(
+      message: "Please provide your name",
+      mode: "form",
+      requested_schema: {"type" => JSON::Any.new("object")} of String => JSON::Any
+    )
+    server_transport.send(msg)
+
+    resp = received.receive
+    resp.should be_a(MCP::Protocol::JSONRPCResponse)
+    elicitation_called.should be_true
   end
 end
 

@@ -1,5 +1,5 @@
 require "../spec_helper"
-require "./mock-helper"
+require "./mock-helper_spec"
 
 describe MCP::Server::SseServerTransport do
   endpoint = "/sse_endpoint"
