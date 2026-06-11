@@ -397,10 +397,21 @@ module MCP::Server
       end
       Log.info { "Registering resource template #{template.name} #{template.uri_template}" }
       @resource_templates[template.uri_template] = RegisteredResourceTemplate.new(template, handler)
+      notify_resource_list_changed
     end
 
     def resource_template_registered?(uri_template : String) : Bool
       @resource_templates.has_key?(uri_template)
+    end
+
+    def remove_resource_template(uri_template : String) : Bool
+      if capabilities.resources.nil?
+        raise ArgumentError.new("Server does not support resources capability.")
+      end
+      Log.info { "Removing resource template #{uri_template}" }
+      removed = @resource_templates.delete(uri_template) != nil
+      notify_resource_list_changed if removed
+      removed
     end
 
     def prompt_registered?(name : String) : Bool

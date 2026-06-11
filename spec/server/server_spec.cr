@@ -692,4 +692,21 @@ describe MCP::Server::Server do
       args[1].required.should be_false
     end
   end
+
+  it "should remove a registered resource template" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(resources: MCP::Server::ServerCapabilities.new.with_resources.resources))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    template = MCP::Protocol::ResourceTemplate.new("T1", "file:///{path}", "A template")
+    server.add_resource_template(template) { |_|
+      MCP::Protocol::ReadResourceResult.new(contents: [] of MCP::Protocol::ResourceContents)
+    }
+
+    server.resource_template_registered?("file:///{path}").should be_true
+
+    removed = server.remove_resource_template("file:///{path}")
+    removed.should be_true
+    server.resource_template_registered?("file:///{path}").should be_false
+  end
 end
