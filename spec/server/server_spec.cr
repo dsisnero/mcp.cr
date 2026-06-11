@@ -596,4 +596,21 @@ describe MCP::Server::Server do
     default_tool = MCP::Protocol::Tool.new("default", MCP::Protocol::Tool::Input.new)
     default_tool.execution.should be_nil
   end
+
+  it "ServerCapabilities should support extensions (SEP-1724)" do
+    caps = MCP::Protocol::ServerCapabilities.new
+    caps.extensions.should be_nil
+
+    caps.with_extensions(extra: "value")
+    caps.extensions.should_not be_nil
+    caps.extensions.try &.has_key?("extra").should be_true
+  end
+
+  it "ClientCapabilities should support extensions (SEP-1724)" do
+    caps = MCP::Protocol::ClientCapabilities.new
+    caps.extensions.should be_nil
+
+    caps.extensions = {"io.modelcontextprotocol/ui" => JSON::Any.new("enabled")} of String => JSON::Any
+    caps.extensions.should_not be_nil
+  end
 end

@@ -169,8 +169,9 @@ module MCP::Protocol
     property sampling : Hash(String, JSON::Any)?
     property elicitation : Hash(String, JSON::Any)?
     property tasks : Hash(String, JSON::Any)?
+    property extensions : Hash(String, JSON::Any)?
 
-    def initialize(@experimental = nil, @sampling = nil, @elicitation = nil, @roots = nil, @tasks = nil)
+    def initialize(@experimental = nil, @sampling = nil, @elicitation = nil, @roots = nil, @tasks = nil, @extensions = nil)
     end
 
     def self.with_roots(list_changed : Bool? = nil)

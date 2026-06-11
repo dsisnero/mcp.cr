@@ -134,9 +134,10 @@ module MCP::Protocol
     getter resources : ResourcesCapability?
     getter tools : ToolsCapability?
     getter tasks : Hash(String, JSON::Any)?
+    getter extensions : Hash(String, JSON::Any)?
 
     def initialize(@experimental = nil, @sampling = nil, @logging = nil, @completions = nil,
-                   @prompts = nil, @resources = nil, @tools = nil, @tasks = nil)
+                   @prompts = nil, @resources = nil, @tools = nil, @tasks = nil, @extensions = nil)
     end
 
     def with_experimental(**kw)
@@ -175,6 +176,12 @@ module MCP::Protocol
     def with_tasks(**kw)
       return self if kw.empty?
       @tasks = JSON.parse(kw.to_json).as_h
+      self
+    end
+
+    def with_extensions(**kw)
+      return self if kw.empty?
+      @extensions = JSON.parse(kw.to_json).as_h
       self
     end
 
