@@ -546,8 +546,20 @@ module MCP::Server
 
     private def handle_read_resource(request : MCP::Protocol::ReadResourceRequestParams) : MCP::Protocol::ReadResourceResult
       Log.info { "Handling read resource request for: #{request.uri}" }
-      resource = @resources[request.uri]? || raise "Resource not found: #{request.uri}"
+      resource = @resources[request.uri]? || match_resource_template(request.uri)
+      raise "Resource not found: #{request.uri}" unless resource
       resource.handler.call(request)
+    end
+
+    private def match_resource_template(uri : String) : RegisteredResourceTemplate?
+      @resource_templates.each do |url_template, registered|
+        regex_str = "^" + url_template.gsub(/\{[^}]*\*[^}]*\}/, "(.+)")
+        regex_str = regex_str.gsub(/\{[^}]+\}/, "([^/]+)") + "$"
+        if uri =~ Regex.new(regex_str)
+          return registered
+        end
+      end
+      nil
     end
 
     private def handle_list_resource_templates : MCP::Protocol::ListResourceTemplatesResult

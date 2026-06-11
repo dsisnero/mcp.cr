@@ -709,4 +709,35 @@ describe MCP::Server::Server do
     removed.should be_true
     server.resource_template_registered?("file:///{path}").should be_false
   end
+
+  it "handle_read_resource should match URI against registered templates" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(resources: MCP::Server::ServerCapabilities.new.with_resources.resources))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    matched_uri = Channel(String).new(1)
+
+    server.add_resource_template(MCP::Protocol::ResourceTemplate.new("FileReader", "file:///{path*}", "Read files")) do |request|
+      matched_uri.send(request.uri)
+      MCP::Protocol::ReadResourceResult.new(
+        contents: [MCP::Protocol::TextResourceContents.new(text: "content", uri: request.uri, mime_type: "text/plain")] of MCP::Protocol::ResourceContents
+      )
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(2)
+    client_transport.on_message { |msg| received.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    request = MCP::Protocol::ReadResourceRequest.new(uri: "file:///home/user/file.txt")
+    client_transport.send(request)
+
+    matched_uri.receive.should eq("file:///home/user/file.txt")
+
+    resp = received.receive
+    resp.should be_a(MCP::Protocol::JSONRPCResponse)
+  end
 end
