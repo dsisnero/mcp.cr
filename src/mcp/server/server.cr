@@ -414,6 +414,17 @@ module MCP::Server
       removed
     end
 
+    def remove_resource_templates(uris : Array(String)) : Int32
+      if capabilities.resources.nil?
+        raise ArgumentError.new("Server does not support resources capability.")
+      end
+      res = uris.map { |uri| remove_resource_template(uri) }
+      removed = res.count(&.== true)
+      Log.info { removed > 0 ? "Removed #{removed} resource templates" : "No resource templates were removed" }
+      notify_resource_list_changed if removed > 0
+      removed
+    end
+
     def clear_all
       had_tools = !@tools.empty?
       had_prompts = !@prompts.empty?

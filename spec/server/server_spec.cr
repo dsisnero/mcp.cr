@@ -710,6 +710,21 @@ describe MCP::Server::Server do
     server.resource_template_registered?("file:///{path}").should be_false
   end
 
+  it "remove_resource_templates should remove multiple templates" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(resources: MCP::Server::ServerCapabilities.new.with_resources.resources))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    handler = ->(_request : MCP::Protocol::ReadResourceRequestParams) : MCP::Protocol::ReadResourceResult {
+      MCP::Protocol::ReadResourceResult.new(contents: [] of MCP::Protocol::ResourceContents)
+    }
+    server.add_resource_template(MCP::Protocol::ResourceTemplate.new("T1", "file:///{a}", "A"), &handler)
+    server.add_resource_template(MCP::Protocol::ResourceTemplate.new("T2", "file:///{b}", "B"), &handler)
+
+    removed = server.remove_resource_templates(["file:///{a}", "file:///{b}"])
+    removed.should eq(2)
+  end
+
   it "handle_read_resource should match URI against registered templates" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(resources: MCP::Server::ServerCapabilities.new.with_resources.resources))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
