@@ -414,6 +414,21 @@ module MCP::Server
       removed
     end
 
+    def clear_all
+      had_tools = !@tools.empty?
+      had_prompts = !@prompts.empty?
+      had_resources = !@resources.empty? || !@resource_templates.empty?
+
+      @tools.clear
+      @prompts.clear
+      @resources.clear
+      @resource_templates.clear
+
+      notify_tool_list_changed if had_tools
+      notify_prompt_list_changed if had_prompts
+      notify_resource_list_changed if had_resources
+    end
+
     def prompt_registered?(name : String) : Bool
       @prompts.has_key?(name)
     end

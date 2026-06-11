@@ -764,4 +764,32 @@ describe MCP::Server::Server do
     exts = ext_received.receive
     exts.should be_a(Hash(String, JSON::Any))
   end
+
+  it "clear_all should reset all registered tools, prompts, resources, and templates" do
+    server_options = MCP::Server::ServerOptions.new(
+      MCP::Server::ServerCapabilities.new(
+        tools: MCP::Server::ServerCapabilities.new.with_tools.tools,
+        prompts: MCP::Server::ServerCapabilities.new.with_prompts.prompts,
+        resources: MCP::Server::ServerCapabilities.new.with_resources.resources
+      )
+    )
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    server.add_tool("t1", "Tool 1", MCP::Protocol::Tool::Input.new) { |_|
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    }
+    server.add_prompt(MCP::Protocol::Prompt.new("p1", "Prompt 1")) { |_|
+      MCP::Protocol::GetPromptResult.new([] of MCP::Protocol::PromptMessage)
+    }
+    server.add_resource(uri: "res://1", name: "R1", description: "d", mime_type: "text/plain") { |_|
+      MCP::Protocol::ReadResourceResult.new(contents: [] of MCP::Protocol::ResourceContents)
+    }
+
+    server.clear_all
+
+    server.tool_registered?("t1").should be_false
+    server.prompt_registered?("p1").should be_false
+    server.resource_registered?("res://1").should be_false
+  end
 end
