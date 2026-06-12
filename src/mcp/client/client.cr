@@ -157,23 +157,23 @@ module MCP::Client
     end
 
     def get_prompt(req : MCP::Protocol::GetPromptRequest, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::GetPromptResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::GetPromptResult)
     end
 
     def list_prompts(req : MCP::Protocol::ListPromptsRequest = MCP::Protocol::ListPromptsRequest.new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListPromptsResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::ListPromptsResult)
     end
 
     def list_resources(req : MCP::Protocol::ListResourcesRequest = MCP::Protocol::ListResourcesRequest.new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListResourcesResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::ListResourcesResult)
     end
 
     def list_resource_templates(req : MCP::Protocol::ListResourceTemplatesRequest = MCP::Protocol::ListResourceTemplatesRequest.new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListResourceTemplatesResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::ListResourceTemplatesResult)
     end
 
     def read_resource(req : MCP::Protocol::ReadResourceRequest, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ReadResourceResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::ReadResourceResult)
     end
 
     def subscribe_resource(req : MCP::Protocol::SubscribeRequest, options : MCP::Shared::RequestOptions? = nil) : EmptyRequestResult
@@ -191,7 +191,7 @@ module MCP::Client
     end
 
     def list_tools(req : MCP::Protocol::ListToolsRequest = MCP::Protocol::ListToolsRequest.new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListToolsResult?
-      request(req, options)
+      request(req, options).as?(MCP::Protocol::ListToolsResult)
     end
 
     def add_root(uri : String, name : String?)

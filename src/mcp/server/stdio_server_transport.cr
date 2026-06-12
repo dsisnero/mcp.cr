@@ -36,13 +36,13 @@ module MCP::Server
           Log.error(exception: ex) { "Error reading from stdin" }
           _on_error.call(ex)
         ensure
-          close
+          read_channel.close
         end
       end
 
       spawn do
-        loop do
-          begin
+        begin
+          loop do
             select
             when chunk = read_channel.receive?
               break if chunk.nil?
@@ -51,9 +51,12 @@ module MCP::Server
             when timeout(1.seconds)
               sleep(100.milliseconds)
             end
-          rescue e
-            _on_error.call(e)
           end
+          process_read_buffer
+        rescue e
+          _on_error.call(e)
+        ensure
+          close
         end
       end
 
@@ -99,13 +102,14 @@ module MCP::Server
 
       begin
         write_channel.close
+
         begin
           input.close
         rescue e
           Log.warn(exception: e) { "Failed to close stdin" }
         end
 
-        read_channel.close
+        read_channel.close rescue nil
         @read_buffer.clear
         output.flush
         @_on_close.call

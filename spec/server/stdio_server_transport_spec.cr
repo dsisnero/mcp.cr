@@ -76,6 +76,76 @@ describe MCP::Server::StdioServerTransport do
       fail "timeout after 5 seconds, expected object"
     end
   end
+
+  it "should process all messages before closing when stdin reaches EOF" do
+    input, output_writer = IO.pipe
+    output_buffer = MCP::Shared::ReadBuffer.new
+    output = OutputCapture.new(output_buffer)
+
+    server = MCP::Server::StdioServerTransport.new(input, output)
+    server.on_error { |error| raise error }
+
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(10)
+    server.on_message { |message| received.send(message) }
+
+    messages = [
+      MCP::Protocol::PingRequest.new,
+      MCP::Protocol::InitializedNotification.new,
+      MCP::Protocol::PingRequest.new,
+    ]
+
+    messages.each { |message| output_writer.puts(message.to_json) }
+    output_writer.close
+
+    server.start
+
+    3.times do
+      select
+      when msg = received.receive
+        msg.should be_a(MCP::Protocol::JSONRPCMessage)
+      when timeout 5.seconds
+        fail "timeout waiting for message"
+      end
+    end
+  end
+
+  it "should drain pending responses before transport close" do
+    input, output_writer = IO.pipe
+    output_buffer = MCP::Shared::ReadBuffer.new
+    output = OutputCapture.new(output_buffer)
+
+    server = MCP::Server::StdioServerTransport.new(input, output)
+    server.on_error { |error| raise error }
+
+    did_close = false
+    close_chan = Channel(Nil).new(1)
+    server.on_close do
+      did_close = true
+      close_chan.send(nil)
+    end
+
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(10)
+    server.on_message { |message| received.send(message) }
+
+    output_writer.puts(MCP::Protocol::PingRequest.new.to_json)
+    output_writer.close
+
+    server.start
+
+    select
+    when msg = received.receive
+      msg.should be_a(MCP::Protocol::PingRequest)
+    when timeout 5.seconds
+      fail "timeout waiting for message"
+    end
+
+    select
+    when close_chan.receive
+      did_close.should be_true
+    when timeout 5.seconds
+      fail "timeout waiting for close"
+    end
+  end
 end
 
 class OutputCapture < IO
