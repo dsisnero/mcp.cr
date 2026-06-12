@@ -14,6 +14,7 @@ module MCP::Server
     @request_to_stream_mapping = {} of MCP::Protocol::RequestId => String
     @request_response_mapping = {} of MCP::Protocol::RequestId => MCP::Protocol::JSONRPCMessage
     @call_mapping = {} of String => HTTP::Server::Context
+    @response_channels = {} of String => Channel(Array(MCP::Protocol::JSONRPCMessage))
     @started : Atomic(Bool)
     @initialized : Atomic(Bool)
     property session_id : String? = nil
@@ -29,7 +30,6 @@ module MCP::Server
       # raise "StreamableHttpServerTransport already started! If using Server class, note that connect() calls start() automatically." unless success
     end
 
-    # ameba:disable Metrics/CyclomaticComplexity
     def send(message : MCP::Protocol::JSONRPCMessage)
       request_id = case message
                    when MCP::Protocol::JSONRPCResponse then message.id
@@ -51,10 +51,6 @@ module MCP::Server
       end
 
       stream_id = @request_to_stream_mapping[request_id]? || return
-      # raise "No connection established for request id #{request_id}"
-
-      call = @call_mapping[stream_id]? || return
-      # raise "No connection established for request id #{request_id}"
 
       @request_response_mapping[request_id] = message
 
@@ -78,17 +74,9 @@ module MCP::Server
       return unless all_responses_ready
 
       if @enable_json_response
-        call.response.headers["Content-Type"] = "application/json"
-        call.response.status_code = HTTP::Status::OK.code
-        if session_id = @session_id
-          call.response.headers[MCP_SESSION_ID] = session_id
-        end
-
         responses = related_ids.map { |id| @request_response_mapping[id] }
-        if responses.size == 1
-          call.response.puts responses.first.to_json
-        else
-          call.response.puts responses.to_json
+        if channel = @response_channels[stream_id]?
+          channel.send(responses)
         end
         @call_mapping.delete(stream_id)
       else
@@ -107,6 +95,8 @@ module MCP::Server
       @stream_mapping.clear
       @request_to_stream_mapping.clear
       @request_response_mapping.clear
+      @response_channels.each_value(&.close)
+      @response_channels.clear
       _on_close.call
     end
 
@@ -170,7 +160,38 @@ module MCP::Server
           end
         end
 
+        json_channel = nil
+        if has_requests && @enable_json_response
+          json_channel = Channel(Array(MCP::Protocol::JSONRPCMessage)).new(1)
+          @response_channels[stream_id] = json_channel
+        end
+
         messages.each { |msg| _on_message.call(msg) }
+
+        if chan = json_channel
+          select
+          when responses = chan.receive
+            @response_channels.delete(stream_id)
+            call.response.headers["Content-Type"] = "application/json"
+            call.response.status_code = HTTP::Status::OK.code
+            if session_id = @session_id
+              call.response.headers[MCP_SESSION_ID] = session_id
+            end
+            if responses.size == 1
+              call.response.puts responses.first.to_json
+            else
+              call.response.puts responses.to_json
+            end
+          when timeout(MCP::Shared::DEFAULT_REQUEST_TIMEOUT)
+            @response_channels.delete(stream_id)
+            respond_error(
+              call,
+              HTTP::Status::INTERNAL_SERVER_ERROR,
+              MCP::Protocol::ErrorCode::InternalError,
+              "Request timed out"
+            )
+          end
+        end
       rescue e : Exception
         respond_error(
           call,
@@ -279,12 +300,14 @@ module MCP::Server
 
       begin
         json = JSON.parse(data)
-        case json
-        when JSON::Any
-          [MCP::Protocol::JSONRPCMessage.from_json(data)]
-        when Array
-          json_arr = json.as_a
-          json_arr.map { |value| MCP::Protocol::JSONRPCMessage.from_json(value.to_json) }
+        case json.raw
+        when Hash, Array
+          messages = if json.raw.is_a?(Array)
+                       json.as_a.map { |value| MCP::Protocol::JSONRPCMessage.from_json(value.to_json) }
+                     else
+                       [MCP::Protocol::JSONRPCMessage.from_json(data)]
+                     end
+          messages
         else
           respond_error(
             call,
