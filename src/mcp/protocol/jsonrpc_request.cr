@@ -101,9 +101,9 @@ module MCP::Protocol
   end
 
   class ListPromptsRequest < JSONRPCRequest
-    getter params : ListPromptsRequestParams
+    getter params : ListPromptsRequestParams = ListPromptsRequestParams.new
 
-    def initialize(@params)
+    def initialize(@params : ListPromptsRequestParams = ListPromptsRequestParams.new)
       super(method: PromptsList)
     end
 
@@ -113,9 +113,9 @@ module MCP::Protocol
   end
 
   class ListResourcesRequest < JSONRPCRequest
-    getter params : ListResourcesRequestParams
+    getter params : ListResourcesRequestParams = ListResourcesRequestParams.new
 
-    def initialize(@params)
+    def initialize(@params : ListResourcesRequestParams = ListResourcesRequestParams.new)
       super(method: ResourcesList)
     end
 
@@ -125,9 +125,9 @@ module MCP::Protocol
   end
 
   class ListResourceTemplatesRequest < JSONRPCRequest
-    getter params : ListResourceTemplatesRequestParams
+    getter params : ListResourceTemplatesRequestParams = ListResourceTemplatesRequestParams.new
 
-    def initialize(@params)
+    def initialize(@params : ListResourceTemplatesRequestParams = ListResourceTemplatesRequestParams.new)
       super(method: ResourcesTemplatesList)
     end
 
@@ -185,9 +185,9 @@ module MCP::Protocol
   end
 
   class ListToolsRequest < JSONRPCRequest
-    getter params : ListToolsRequestParams
+    getter params : ListToolsRequestParams = ListToolsRequestParams.new
 
-    def initialize(@params)
+    def initialize(@params : ListToolsRequestParams = ListToolsRequestParams.new)
       super(method: ToolsList)
     end
 

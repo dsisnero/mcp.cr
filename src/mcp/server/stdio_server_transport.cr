@@ -9,6 +9,8 @@ module MCP::Server
     private getter read_channel : Channel(Bytes)
     private getter write_channel : Channel(MCP::Protocol::JSONRPCMessage)
     @initialized : Atomic(Bool)
+    @inflight : Atomic(Int32)
+    @inflight_zero : Channel(Nil)
 
     def initialize(@input, @output)
       super()
@@ -17,6 +19,28 @@ module MCP::Server
       @initialized = Atomic.new(false)
       @read_channel = Channel(Bytes).new(50)
       @write_channel = Channel(MCP::Protocol::JSONRPCMessage).new(50)
+      @inflight = Atomic(Int32).new(0)
+      @inflight_zero = Channel(Nil).new(1)
+    end
+
+    def begin_request
+      @inflight.add(1)
+    end
+
+    def end_request
+      @inflight.sub(1)
+      if @inflight.get == 0
+        begin
+          @inflight_zero.send(nil)
+        rescue
+        end
+      end
+    end
+
+    def drain_requests
+      if @inflight.get > 0
+        @inflight_zero.receive
+      end
     end
 
     def start
@@ -100,20 +124,20 @@ module MCP::Server
       _, success = @initialized.compare_and_set(true, false)
       return unless success
 
+      drain_requests
+
+      write_channel.close
+
       begin
-        write_channel.close
-
-        begin
-          input.close
-        rescue e
-          Log.warn(exception: e) { "Failed to close stdin" }
-        end
-
-        read_channel.close rescue nil
-        @read_buffer.clear
-        output.flush
-        @_on_close.call
+        input.close
+      rescue e
+        Log.warn(exception: e) { "Failed to close stdin" }
       end
+
+      read_channel.close rescue nil
+      @read_buffer.clear
+      output.flush
+      @_on_close.call
     end
 
     def send(message : MCP::Protocol::JSONRPCMessage)

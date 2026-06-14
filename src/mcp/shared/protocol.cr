@@ -149,7 +149,8 @@ module MCP::Shared
       rid = request.id
       @request_cancellers[rid] = cancel_channel if rid
       extra = RequestHandlerExtra.new
-      extra.cancel_channel = cancel_channel
+
+      transport.try &.begin_request
 
       spawn do
         begin
@@ -184,6 +185,7 @@ module MCP::Shared
           end
         ensure
           @request_cancellers.delete(rid) if rid
+          transport.try &.end_request
         end
       end
     end

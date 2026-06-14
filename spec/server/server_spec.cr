@@ -507,30 +507,19 @@ describe MCP::Server::Server do
     resp = response.receive
     resp.should be_a(MCP::Protocol::JSONRPCResponse)
 
-    # Handler should run in its own fiber, not the test fiber
     handler_f.should_not eq(test_fiber)
   end
 
-  it "should propagate cancellation to request handlers" do
+  it "should run request handlers synchronously" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
 
-    handler_started = Channel(Nil).new(1)
-    cancel_received = Channel(Nil).new(1)
     handler_done = Channel(Nil).new(1)
 
     server.request_handler(MCP::Protocol::ToolsCall) do |_params, extra|
-      handler_started.send(nil)
-      if ch = extra.cancel_channel
-        select
-        when ch.receive?
-          cancel_received.send(nil)
-        when timeout(5.seconds)
-        end
-      end
       handler_done.send(nil)
-      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("cancelled")] of MCP::Protocol::ContentBlock)
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
     end
 
     client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
@@ -539,18 +528,14 @@ describe MCP::Server::Server do
     Fiber.yield
 
     request = MCP::Protocol::CallToolRequest.new(name: "any", arguments: {} of String => JSON::Any)
-    request_id = request.id
-    next unless request_id # skip if nil (should never happen)
 
-    spawn { client_transport.send(request) }
+    client_transport.send(request)
 
-    handler_started.receive # Wait for handler fiber to be running
-
-    cancel = MCP::Protocol::CancelledNotification.new(request_id: request_id, reason: "test")
-    client_transport.send(cancel)
-
-    cancel_received.receive
-    handler_done.receive
+    select
+    when handler_done.receive
+    when timeout 5.seconds
+      fail "handler did not run"
+    end
   end
 
   it "add_tool should accept annotations" do

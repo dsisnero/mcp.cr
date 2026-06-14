@@ -15,6 +15,18 @@ module MCP::Shared
     abstract def on_error(&block : Exception -> Nil) : Nil
     # Callback for incoming messages
     abstract def on_message(&block : JSONRPCMessage -> Nil) : Nil
+
+    # Called when a request handler starts (before spawn). Default no-op.
+    def begin_request
+    end
+
+    # Called when a request handler finishes (after spawn, in ensure). Default no-op.
+    def end_request
+    end
+
+    # Wait for all in-flight requests to complete. Default no-op.
+    def drain_requests
+    end
   end
 
   abstract class AbstractTransport
