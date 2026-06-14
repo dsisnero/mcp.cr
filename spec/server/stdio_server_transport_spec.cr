@@ -146,6 +146,54 @@ describe MCP::Server::StdioServerTransport do
       fail "timeout waiting for close"
     end
   end
+
+  it "drains all pending responses from spawned handlers before close" do
+    input, output_writer = IO.pipe
+    output_mem = IO::Memory.new
+
+    server = MCP::Server::StdioServerTransport.new(input, output_mem)
+    server.on_error { |error| raise error }
+
+    did_close = false
+    close_chan = Channel(Nil).new(1)
+    server.on_close do
+      did_close = true
+      close_chan.send(nil)
+    end
+
+    server.on_message do |msg|
+      case msg
+      when MCP::Protocol::JSONRPCRequest
+        server.begin_request
+        spawn do
+          sleep(10.milliseconds)
+          server.send(MCP::Protocol::JSONRPCResponse.new(
+            id: msg.id.not_nil!,
+            result: MCP::Protocol::EmptyResult.new
+          ))
+          server.end_request
+        end
+      end
+    end
+
+    5.times do
+      output_writer.puts(MCP::Protocol::PingRequest.new.to_json)
+    end
+    output_writer.close
+
+    server.start
+
+    select
+    when close_chan.receive
+      did_close.should be_true
+    when timeout 5.seconds
+      fail "timeout waiting for close"
+    end
+
+    output_text = output_mem.to_s
+    lines = output_text.split('\n').reject(&.empty?)
+    lines.size.should eq(5)
+  end
 end
 
 class OutputCapture < IO
