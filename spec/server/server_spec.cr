@@ -152,125 +152,126 @@ describe MCP::Server::Server do
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
 
-    expect_raises(Exception, "Server does not support prompts capability") do
-      server.remove_prompt("test-prompt")
-    end
-  end
+     expect_raises(Exception, "Server does not support prompts capability") do
+       server.remove_prompt("test-prompt")
+     end
+   end
 
-  # Full CRUD integration: add_tool → tools/list → tools/call → remove_tool
+   # Full CRUD integration: add_tool → tools/list → tools/call → remove_tool
 
-  it "add_tool, tools/list, tools/call, remove_tool — full pet CRUD lifecycle" do
-    server_options = MCP::Server::ServerOptions.new(
-      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools(true).tools)
-    )
-    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
-    server = MCP::Server::Server.new(impl, server_options)
+   it "add_tool, tools/list, tools/call, remove_tool — full pet CRUD lifecycle" do
+     server_options = MCP::Server::ServerOptions.new(
+       MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools(true).tools)
+     )
+     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+     server = MCP::Server::Server.new(impl, server_options)
 
-    tool_names = [] of String
-    server.request_handler(MCP::Protocol::ToolsList) do |_request, _|
-      tools = tool_names.map { |name|
-        MCP::Protocol::Tool.new(name: name, description: "A tool", input_schema: MCP::Protocol::Tool::Input.new)
-      }
-      MCP::Protocol::ListToolsResult.new(tools: tools, next_cursor: nil)
-    end
+     tool_names = [] of String
+     server.request_handler(MCP::Protocol::ToolsList) do |_request, _|
+       tools = tool_names.map { |name|
+         MCP::Protocol::Tool.new(name: name, description: "A tool", input_schema: MCP::Protocol::Tool::Input.new)
+       }
+       MCP::Protocol::ListToolsResult.new(tools: tools, next_cursor: nil)
+     end
 
-    pet_input = MCP::Protocol::Tool::Input.new(
-      properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
-      required: ["name"]
-    )
+     pet_input = MCP::Protocol::Tool::Input.new(
+       properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
+       required: ["name"]
+     )
 
-    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
-    received = Channel(MCP::Protocol::JSONRPCMessage).new(3)
-    client_transport.on_message { |msg| received.send(msg) }
+     client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
 
-    spawn { server.connect(server_transport) }
-    Fiber.yield
+     received = Channel(MCP::Protocol::JSONRPCMessage).new(5)
+     client_transport.on_message { |msg| received.send(msg) }
 
-    # 1. Initially empty
-    client_transport.send(MCP::Protocol::ListToolsRequest.new)
-    msg = received.receive
-    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
-    tools.should be_empty
+     spawn { server.connect(server_transport) }
+     Fiber.yield
 
-    # 2. Add a tool (create pet)
-    server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
-      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created fluffy")] of MCP::Protocol::ContentBlock)
-    }
-    tool_names << "create_pet"
+     # 1. Initially empty
+     client_transport.send(MCP::Protocol::ListToolsRequest.new)
+     msg = received.receive
+     tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+     tools.should be_empty
 
-    # 3. List tools — pet tool appears
-    client_transport.send(MCP::Protocol::ListToolsRequest.new)
-    msg = received.receive
-    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
-    tools.size.should eq(1)
-    tools.first.name.should eq("create_pet")
+     # 2. Add a tool (create pet)
+     server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
+       MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created fluffy")] of MCP::Protocol::ContentBlock)
+     }
+     tool_names << "create_pet"
 
-    # 4. Call the tool (create fluffy)
-    client_transport.send(MCP::Protocol::CallToolRequest.new(
-      name: "create_pet",
-      arguments: {"name" => JSON::Any.new("fluffy")}
-    ))
-    msg = received.receive
-    msg.should be_a(MCP::Protocol::JSONRPCResponse)
+     # 3. List tools — pet tool appears
+     client_transport.send(MCP::Protocol::ListToolsRequest.new)
+     msg = received.receive
+     tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+     tools.size.should eq(1)
+     tools.first.name.should eq("create_pet")
 
-    # 5. Add a second tool (list pets)
-    server.add_tool("list_pets", "List all pets", MCP::Protocol::Tool::Input.new) { |_req|
-      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("[]")] of MCP::Protocol::ContentBlock)
-    }
-    tool_names << "list_pets"
+     # 4. Call the tool (create fluffy)
+     client_transport.send(MCP::Protocol::CallToolRequest.new(
+       name: "create_pet",
+       arguments: {"name" => JSON::Any.new("fluffy")}
+     ))
+     msg = received.receive
+     msg.should be_a(MCP::Protocol::JSONRPCResponse)
 
-    client_transport.send(MCP::Protocol::ListToolsRequest.new)
-    msg = received.receive
-    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
-    tools.size.should eq(2)
+     # 5. Add a second tool (list pets)
+     server.add_tool("list_pets", "List all pets", MCP::Protocol::Tool::Input.new) { |_req|
+       MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("[]")] of MCP::Protocol::ContentBlock)
+     }
+     tool_names << "list_pets"
 
-    # 6. Delete pets (remove tools)
-    server.remove_tool("create_pet").should be_true
-    server.remove_tool("list_pets").should be_true
-    tool_names.clear
+     client_transport.send(MCP::Protocol::ListToolsRequest.new)
+     msg = received.receive
+     tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+     tools.size.should eq(2)
 
-    # 7. List tools — empty again
-    client_transport.send(MCP::Protocol::ListToolsRequest.new)
-    msg = received.receive
-    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
-    tools.size.should eq(0)
-  end
+     # 6. Delete pets (remove tools)
+     server.remove_tool("create_pet").should be_true
+     server.remove_tool("list_pets").should be_true
+     tool_names.clear
 
-  it "add_tool raises when tools capability is not supported" do
-    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new)
-    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
-    server = MCP::Server::Server.new(impl, server_options)
+     # 7. List tools — empty again
+     client_transport.send(MCP::Protocol::ListToolsRequest.new)
+     msg = received.receive
+     tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+     tools.size.should eq(0)
+   end
 
-    pet_input = MCP::Protocol::Tool::Input.new(
-      properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
-      required: ["name"]
-    )
-    expect_raises(Exception, "Server does not support tools capability") do
-      server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
-        MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created")] of MCP::Protocol::ContentBlock)
-      }
-    end
-  end
+   it "add_tool raises when tools capability is not supported" do
+     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new)
+     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+     server = MCP::Server::Server.new(impl, server_options)
 
-  it "tools/call with unknown tool name returns method_not_found error" do
-    server_options = MCP::Server::ServerOptions.new(
-      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
-    )
-    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
-    server = MCP::Server::Server.new(impl, server_options)
+     pet_input = MCP::Protocol::Tool::Input.new(
+       properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
+       required: ["name"]
+     )
+     expect_raises(Exception, "Server does not support tools capability") do
+       server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
+         MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created")] of MCP::Protocol::ContentBlock)
+       }
+     end
+   end
 
-    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
-    received = Channel(MCP::Protocol::JSONRPCMessage).new(1)
-    client_transport.on_message { |msg| received.send(msg) }
+   it "tools/call with unknown tool name returns error" do
+     server_options = MCP::Server::ServerOptions.new(
+       MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
+     )
+     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+     server = MCP::Server::Server.new(impl, server_options)
 
-    spawn { server.connect(server_transport) }
-    Fiber.yield
+     client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+     received = Channel(MCP::Protocol::JSONRPCMessage).new(1)
+     client_transport.on_message { |msg| received.send(msg) }
 
-    client_transport.send(MCP::Protocol::CallToolRequest.new(
-      name: "nonexistent_tool",
-      arguments: {} of String => JSON::Any
-    ))
-    msg = received.receive
-    msg.should be_a(MCP::Protocol::JSONRPCError)
-  end
+     spawn { server.connect(server_transport) }
+     Fiber.yield
+
+     client_transport.send(MCP::Protocol::CallToolRequest.new(
+       name: "nonexistent_tool",
+       arguments: {} of String => JSON::Any
+     ))
+     msg = received.receive
+     msg.should be_a(MCP::Protocol::JSONRPCError)
+   end
 end

@@ -56,7 +56,7 @@ module MCP::Server
         rescue e
           _on_error.call(e)
         ensure
-          close
+          drain_and_close
         end
       end
 
@@ -96,24 +96,32 @@ module MCP::Server
       end
     end
 
-    def close
+    private def drain_and_close
+      write_channel.close
+      sleep(200.milliseconds)
+      do_close
+    end
+
+    private def do_close
       _, success = @initialized.compare_and_set(true, false)
       return unless success
 
+      write_channel.close rescue nil
+
       begin
-        write_channel.close
-
-        begin
-          input.close
-        rescue e
-          Log.warn(exception: e) { "Failed to close stdin" }
-        end
-
-        read_channel.close rescue nil
-        @read_buffer.clear
-        output.flush
-        @_on_close.call
+        input.close
+      rescue e
+        Log.warn(exception: e) { "Failed to close stdin" }
       end
+
+      read_channel.close rescue nil
+      @read_buffer.clear
+      output.flush
+      @_on_close.call
+    end
+
+    def close
+      drain_and_close
     end
 
     def send(message : MCP::Protocol::JSONRPCMessage)

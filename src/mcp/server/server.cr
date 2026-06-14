@@ -114,14 +114,14 @@ module MCP::Server
 
     def add_tools(tools : Array(RegisteredTool))
       if capabilities.tools.nil?
-        Log.error { " Failed to add tool #{name}: Server does not support tools capability" }
+        Log.error { "Failed to add tools: Server does not support tools capability" }
         raise ArgumentError.new("Server does not support tools capability. Enable it in ServerOptions")
       end
 
       Log.info { "Registering #{tools.size} tools" }
       tools.each do |rtool|
         Log.debug { "Registering tool: #{rtool.tool.name}" }
-        @tools[rtool.tool.name] = rt
+        @tools[rtool.tool.name] = rtool
       end
     end
 

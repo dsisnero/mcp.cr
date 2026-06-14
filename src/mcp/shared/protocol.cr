@@ -25,6 +25,12 @@ module MCP::Shared
 
   class RequestHandlerExtra
     include JSON::Serializable::Unmapped
+    property cancel_channel : Channel(Nil)?
+    property extensions : Hash(String, JSON::Any)
+
+    def initialize
+      @extensions = Hash(String, JSON::Any).new
+    end
   end
 
   abstract class Protocol
@@ -35,6 +41,7 @@ module MCP::Shared
     @notification_handlers = {} of String => JSONRPCNotification ->
     @response_handlers : Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
     @progress_handlers = {} of RequestId => ProgressCallback
+    @request_cancellers = {} of RequestId => Channel(Nil)
     property fallback_request_handler : ((JSONRPCRequest, RequestHandlerExtra) -> Result?)?
     property fallback_notification_handler : (JSONRPCNotification ->)?
 
@@ -81,6 +88,8 @@ module MCP::Shared
     private def do_close
       @response_handlers.clear
       @progress_handlers.clear
+      @request_cancellers.each_value(&.close)
+      @request_cancellers.clear
       @transport = nil
       on_close
 
@@ -92,6 +101,16 @@ module MCP::Shared
 
     private def on_notification(notification : JSONRPCNotification)
       Log.trace { "Received notification: #{notification.method}" }
+
+      # Handle cancellation by closing the request's cancel channel
+      if notification.method == MCP::Protocol::NotificationsCancelled
+        if params = notification.params.as?(MCP::Protocol::CancelledNotificationParams)
+          if channel = @request_cancellers[params.request_id]?
+            channel.close
+            @request_cancellers.delete(params.request_id)
+          end
+        end
+      end
 
       handler = @notification_handlers[notification.method]? || @fallback_notification_handler
       return unless handler
@@ -125,15 +144,21 @@ module MCP::Shared
         return
       end
 
+      transport = @transport
+      cancel_channel = Channel(Nil).new
+      rid = request.id
+      @request_cancellers[rid] = cancel_channel if rid
+      extra = RequestHandlerExtra.new
+
       begin
-        resp = handler.call(request, RequestHandlerExtra.new)
+        resp = handler.call(request, extra)
         Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
         if result = resp
-          @transport.try &.send(
+          transport.try &.send(
             JSONRPCResponse.new(id: request.id, result: result)
           )
         else
-          @transport.try &.send(
+          transport.try &.send(
             JSONRPCError.new(
               request.id,
               :internal_error,
@@ -145,7 +170,7 @@ module MCP::Shared
         Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
 
         begin
-          @transport.try &.send(
+          transport.try &.send(
             JSONRPCError.new(
               request.id,
               :internal_error,
@@ -155,6 +180,8 @@ module MCP::Shared
         rescue ex
           Log.error(exception: ex) { "Failed to send error response" }
         end
+      ensure
+        @request_cancellers.delete(rid) if rid
       end
     end
 
@@ -285,7 +312,7 @@ module MCP::Shared
           when Exception
             raise result
           else
-            return result
+            result
           end
         when timeout(timeout)
           timeout_error = MCP::Protocol::MCPError.new(
