@@ -507,7 +507,7 @@ describe MCP::Server::Server do
     resp = response.receive
     resp.should be_a(MCP::Protocol::JSONRPCResponse)
 
-    handler_f.should eq(test_fiber)
+    handler_f.should_not eq(test_fiber)
   end
 
   it "should run request handlers synchronously" do
