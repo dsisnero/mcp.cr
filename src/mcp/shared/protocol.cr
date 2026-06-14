@@ -149,42 +149,39 @@ module MCP::Shared
       rid = request.id
       @request_cancellers[rid] = cancel_channel if rid
       extra = RequestHandlerExtra.new
-      extra.cancel_channel = cancel_channel
 
-      spawn do
-        begin
-          resp = handler.call(request, extra)
-          Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
-          if result = resp
-            transport.try &.send(
-              JSONRPCResponse.new(id: request.id, result: result)
+      begin
+        resp = handler.call(request, extra)
+        Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
+        if result = resp
+          transport.try &.send(
+            JSONRPCResponse.new(id: request.id, result: result)
+          )
+        else
+          transport.try &.send(
+            JSONRPCError.new(
+              request.id,
+              :internal_error,
+              "Internal error: Handler returned no result"
             )
-          else
-            transport.try &.send(
-              JSONRPCError.new(
-                request.id,
-                :internal_error,
-                "Internal error: Handler returned no result"
-              )
-            )
-          end
-        rescue error
-          Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
-
-          begin
-            transport.try &.send(
-              JSONRPCError.new(
-                request.id,
-                :internal_error,
-                error.message || "Internal error"
-              )
-            )
-          rescue ex
-            Log.error(exception: ex) { "Failed to send error response" }
-          end
-        ensure
-          @request_cancellers.delete(rid) if rid
+          )
         end
+      rescue error
+        Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
+
+        begin
+          transport.try &.send(
+            JSONRPCError.new(
+              request.id,
+              :internal_error,
+              error.message || "Internal error"
+            )
+          )
+        rescue ex
+          Log.error(exception: ex) { "Failed to send error response" }
+        end
+      ensure
+        @request_cancellers.delete(rid) if rid
       end
     end
 
