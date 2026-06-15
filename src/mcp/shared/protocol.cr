@@ -153,39 +153,41 @@ module MCP::Shared
 
       transport.try &.begin_request
 
-      begin
-        resp = handler.call(request, extra)
-        Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
-        if result = resp
-          transport.try &.send(
-            JSONRPCResponse.new(id: request.id, result: result)
-          )
-        else
-          transport.try &.send(
-            JSONRPCError.new(
-              request.id,
-              :internal_error,
-              "Internal error: Handler returned no result"
-            )
-          )
-        end
-      rescue error
-        Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
-
+      spawn do
         begin
-          transport.try &.send(
-            JSONRPCError.new(
-              request.id,
-              :internal_error,
-              error.message || "Internal error"
+          resp = handler.call(request, extra)
+          Log.trace { "Request handled successfully: #{request.method} (id: #{request.id})" }
+          if result = resp
+            transport.try &.send(
+              JSONRPCResponse.new(id: request.id, result: result)
             )
-          )
-        rescue ex
-          Log.error(exception: ex) { "Failed to send error response" }
+          else
+            transport.try &.send(
+              JSONRPCError.new(
+                request.id,
+                :internal_error,
+                "Internal error: Handler returned no result"
+              )
+            )
+          end
+        rescue error
+          Log.error(exception: error) { "Error handling request: #{request.method} (id: #{request.id})" }
+
+          begin
+            transport.try &.send(
+              JSONRPCError.new(
+                request.id,
+                :internal_error,
+                error.message || "Internal error"
+              )
+            )
+          rescue ex
+            Log.error(exception: ex) { "Failed to send error response" }
+          end
+        ensure
+          @request_cancellers.delete(rid) if rid
+          transport.try &.end_request
         end
-      ensure
-        @request_cancellers.delete(rid) if rid
-        transport.try &.end_request
       end
     end
 

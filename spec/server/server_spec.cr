@@ -480,7 +480,7 @@ describe MCP::Server::Server do
     result.resource_templates.first.name.should eq("MyTemplate")
   end
 
-  it "should run request handlers synchronously in the calling fiber" do
+  it "should run request handlers concurrently in a separate fiber" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
@@ -510,7 +510,7 @@ describe MCP::Server::Server do
     handler_f.should_not eq(test_fiber)
   end
 
-  it "should run request handlers synchronously" do
+  it "should run request handlers and complete before timeout" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
