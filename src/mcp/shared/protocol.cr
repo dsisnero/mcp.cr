@@ -42,6 +42,7 @@ module MCP::Shared
     @response_handlers : Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
     @progress_handlers = {} of RequestId => ProgressCallback
     @request_cancellers = {} of RequestId => Channel(Nil)
+    @cancellers_mutex = Mutex.new
     property fallback_request_handler : ((JSONRPCRequest, RequestHandlerExtra) -> Result?)?
     property fallback_notification_handler : (JSONRPCNotification ->)?
 
@@ -88,8 +89,10 @@ module MCP::Shared
     private def do_close
       @response_handlers.clear
       @progress_handlers.clear
-      @request_cancellers.each_value(&.close)
-      @request_cancellers.clear
+      @cancellers_mutex.synchronize do
+        @request_cancellers.each_value(&.close)
+        @request_cancellers.clear
+      end
       @transport = nil
       on_close
 
@@ -105,10 +108,13 @@ module MCP::Shared
       # Handle cancellation by closing the request's cancel channel
       if notification.method == MCP::Protocol::NotificationsCancelled
         if params = notification.params.as?(MCP::Protocol::CancelledNotificationParams)
-          if channel = @request_cancellers[params.request_id]?
-            channel.close
-            @request_cancellers.delete(params.request_id)
+          channel = @cancellers_mutex.synchronize do
+            if ch = @request_cancellers[params.request_id]?
+              @request_cancellers.delete(params.request_id)
+              ch
+            end
           end
+          channel.try(&.close)
         end
       end
 
@@ -147,8 +153,9 @@ module MCP::Shared
       transport = @transport
       cancel_channel = Channel(Nil).new
       rid = request.id
-      @request_cancellers[rid] = cancel_channel if rid
+      @cancellers_mutex.synchronize { @request_cancellers[rid] = cancel_channel } if rid
       extra = RequestHandlerExtra.new
+      extra.cancel_channel = cancel_channel
 
       transport.try &.begin_request
 
@@ -184,7 +191,7 @@ module MCP::Shared
             Log.error(exception: ex) { "Failed to send error response" }
           end
         ensure
-          @request_cancellers.delete(rid) if rid
+          @cancellers_mutex.synchronize { @request_cancellers.delete(rid) } if rid
           transport.try &.end_request
         end
       end
