@@ -31,6 +31,10 @@ module MCP::Shared
     def initialize
       @extensions = Hash(String, JSON::Any).new
     end
+
+    def cancelled? : Bool
+      @cancel_channel.try(&.closed?) || false
+    end
   end
 
   abstract class Protocol

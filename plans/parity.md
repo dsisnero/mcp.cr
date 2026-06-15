@@ -41,7 +41,7 @@ Sources of truth:
 | HTTP Client Transport (Gap 1) | Yes | Yes | Medium | Cannot connect to remote MCP servers over HTTP |
 | ~~Auto list-changed on register/deregister (Gap 3)~~ | Yes | Yes | Small | Done |
 | ~~Spawn-per-request concurrency (Gap 8)~~ | Yes | Yes | Medium | Done |
-| Request cancellation propagation (Gap 9) | Yes | Yes | Medium | CancelledNotification received but not routed to handler |
+| ~~Request cancellation propagation (Gap 9)~~ | Yes | Yes | Medium | Done — `RequestHandlerExtra#cancelled?` + cancel channel routed to handler |
 
 ### Tier 2 — High
 
@@ -52,7 +52,6 @@ Sources of truth:
 | ~~Pagination logic in list handlers (Gap 7)~~ | Yes | Yes | Medium | Done |
 | ~~WithAnnotations builder (Gap 5)~~ | Yes | Yes | Small | Done |
 | Thread-safe registration maps (Gap 10) | Yes | Yes | Small | RW lock-protected Hash; use Crystal `sync/rw_lock` shard |
-| Request cancellation propagation (Gap 9) | Yes | Yes | Medium | Moved to Tier 1 |
 
 ### Tier 3 — Medium
 

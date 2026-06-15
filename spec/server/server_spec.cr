@@ -917,4 +917,68 @@ describe MCP::Server::Server do
     msg = received.receive
     msg.should be_a(MCP::Protocol::JSONRPCError)
   end
+
+  it "RequestHandlerExtra#cancelled? returns false by default" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    extra.cancelled?.should be_false
+  end
+
+  it "RequestHandlerExtra#cancelled? returns true after cancel channel is closed" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    ch = Channel(Nil).new
+    extra.cancel_channel = ch
+    extra.cancelled?.should be_false
+    ch.close
+    extra.cancelled?.should be_true
+  end
+
+  it "RequestHandlerExtra#cancelled? returns false when cancel_channel is nil" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    extra.cancel_channel.should be_nil
+    extra.cancelled?.should be_false
+  end
+
+  it "handler detects cancellation and aborts long-running operation" do
+    server_options = MCP::Server::ServerOptions.new(
+      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
+    )
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    done_chan = Channel(String).new(1)
+
+    server.request_handler(MCP::Protocol::ToolsCall) do |_params, extra|
+      100.times do
+        break if extra.cancelled?
+        sleep(5.milliseconds)
+      end
+      if extra.cancelled?
+        done_chan.send("cancelled")
+      else
+        done_chan.send("completed")
+      end
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(5)
+    client_transport.on_message { |msg| received.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    req = MCP::Protocol::CallToolRequest.new(
+      name: "slow-tool",
+      arguments: {} of String => JSON::Any
+    )
+    req_id = req.id.not_nil!
+    client_transport.send(req)
+
+    sleep(30.milliseconds)
+
+    client_transport.send(MCP::Protocol::CancelledNotification.new(request_id: req_id))
+
+    result = done_chan.receive
+    result.should eq("cancelled")
+  end
 end
