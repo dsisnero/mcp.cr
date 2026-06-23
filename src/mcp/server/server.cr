@@ -40,9 +40,22 @@ module MCP::Server
     @resources : Sync::Map(String, RegisteredResource) = Sync::Map(String, RegisteredResource).new
     @resource_templates : Sync::Map(String, RegisteredResourceTemplate) = Sync::Map(String, RegisteredResourceTemplate).new
     @subscriptions = Set(String).new
+    @_tool_router : ToolRouter?
     @completion_handler : (MCP::Protocol::CompleteRequestParams -> MCP::Protocol::CompleteResult)?
     property logging_level : MCP::Protocol::LoggingLevel = MCP::Protocol::LoggingLevel::Info
     getter server_options : ServerOptions
+
+    # Exposes a ToolRouter view over the registered tools, supporting
+    # router-style dispatch, enable/disable, and inspection.
+    def tool_router : ToolRouter
+      @_tool_router ||= begin
+        router = ToolRouter.new
+        @tools.each do |name, registered|
+          router.add_tool(name, registered.handler)
+        end
+        router
+      end
+    end
 
     def initialize(@server_info, @server_options)
       super(@server_options)
