@@ -75,8 +75,8 @@ Sources of truth:
 | ~~Icon support on Implementation/Tool/Prompt~~ | No | Yes | Small | Done — `Icon` struct + `icons` fields on params/results |
 | ~~Extensions type-map~~ | No | Yes | Medium | Done — `RequestHandlerExtra#set_extension` / `#get_extension(T)` typed accessors |
 | ~~Tool task support (required/optional/forbidden)~~ | No | Yes | Medium | Done — `TaskSupport` enum + `ToolExecution` struct on `Tool` |
-| SEP-1724 MCP Extensions | No | Yes | Medium | Vendor extension capability negotiation |
-| Router system (ToolRouter/PromptRouter) | No | Yes | Large | Composable routing with dynamic enable/disable |
+| ~~SEP-1724 MCP Extensions~~ | No | Yes | Medium | Done — extensions flow through initialize; spec added for negotiation round-trip |
+| Router system (ToolRouter/PromptRouter) | No | Yes | Large | ToolRouter + PromptRouter + ResourceRouter done; Server wiring pending |
 
 ### Thread-Safe Maps Design Note
 
