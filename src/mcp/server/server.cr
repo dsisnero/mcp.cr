@@ -1,6 +1,7 @@
 require "base64"
 require "json"
 require "log"
+require "sync-map"
 require "../shared"
 
 module MCP::Server
@@ -34,12 +35,11 @@ module MCP::Server
     @_on_close : Proc(Nil) = -> { }
     @_on_logging_level_change : Proc(MCP::Protocol::LoggingLevel, Nil) = ->(level : MCP::Protocol::LoggingLevel) { }
 
-    @tools : Hash(String, RegisteredTool) = Hash(String, RegisteredTool).new
-    @prompts : Hash(String, RegisteredPrompt) = Hash(String, RegisteredPrompt).new
-    @resources : Hash(String, RegisteredResource) = Hash(String, RegisteredResource).new
-    @resource_templates : Hash(String, RegisteredResourceTemplate) = Hash(String, RegisteredResourceTemplate).new
+    @tools : Sync::Map(String, RegisteredTool) = Sync::Map(String, RegisteredTool).new
+    @prompts : Sync::Map(String, RegisteredPrompt) = Sync::Map(String, RegisteredPrompt).new
+    @resources : Sync::Map(String, RegisteredResource) = Sync::Map(String, RegisteredResource).new
+    @resource_templates : Sync::Map(String, RegisteredResourceTemplate) = Sync::Map(String, RegisteredResourceTemplate).new
     @subscriptions = Set(String).new
-    @mutex = Mutex.new
     @completion_handler : (MCP::Protocol::CompleteRequestParams -> MCP::Protocol::CompleteResult)?
     property logging_level : MCP::Protocol::LoggingLevel = MCP::Protocol::LoggingLevel::Info
     getter server_options : ServerOptions
@@ -189,7 +189,7 @@ module MCP::Server
         raise ArgumentError.new("Server does not support tools capability.")
       end
       Log.info { "Removing tool #{name}" }
-      removed = @tools.delete(name) != nil
+      _, removed = @tools.load_and_delete(name)
       Log.debug {
         removed ? "Tool removed: #{name}" : "Tool not found: #{name}"
       }
@@ -245,7 +245,7 @@ module MCP::Server
         raise ArgumentError.new("Server does not support prompts capability.")
       end
       Log.info { "Removing prompt #{name}" }
-      removed = @prompts.delete(name) != nil
+      _, removed = @prompts.load_and_delete(name)
       Log.debug {
         removed ? "Prompt removed: #{name}" : "Prompt not found: #{name}"
       }
@@ -295,7 +295,7 @@ module MCP::Server
         raise ArgumentError.new("Server does not support resources capability.")
       end
       Log.info { "Removing resource #{uri}" }
-      removed = @resources.delete(uri) != nil
+      _, removed = @resources.load_and_delete(uri)
       Log.debug {
         removed ? "Resource removed: #{uri}" : "Resource not found: #{uri}"
       }
@@ -409,7 +409,7 @@ module MCP::Server
         raise ArgumentError.new("Server does not support resources capability.")
       end
       Log.info { "Removing resource template #{uri_template}" }
-      removed = @resource_templates.delete(uri_template) != nil
+      _, removed = @resource_templates.load_and_delete(uri_template)
       notify_resource_list_changed if removed
       removed
     end

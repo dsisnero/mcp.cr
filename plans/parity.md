@@ -51,7 +51,7 @@ Sources of truth:
 | ~~Check-registration-status (Gap 6)~~ | Yes | No | Small | Done |
 | ~~Pagination logic in list handlers (Gap 7)~~ | Yes | Yes | Medium | Done |
 | ~~WithAnnotations builder (Gap 5)~~ | Yes | Yes | Small | Done |
-| Thread-safe registration maps (Gap 10) | Yes | Yes | Small | RW lock-protected Hash; use Crystal `sync/rw_lock` shard |
+| ~~Thread-safe registration maps (Gap 10)~~ | Yes | Yes | Small | Done — `@tools`/`@prompts`/`@resources`/`@resource_templates` are `Sync::Map` (dsisnero/sync-map); MT stress spec under `-Dpreview_mt -Dexecution_context` |
 
 ### Tier 3 — Medium
 
@@ -70,9 +70,9 @@ Sources of truth:
 | Handler signature validation (Gap 13) | Yes | Yes | Small | Crystal's type system mostly covers this |
 | Rich prompt argument schemas (Gap 17) | Yes | Yes | Small | Per-argument descriptions from annotations |
 | Elicitation schema builder | No | Yes | Large | Type-safe ElicitationSchema with enum/number/string builders |
-| Tool output schema | No | Yes | Small | output_schema on Tool definition |
-| Tool annotations (read_only, destructive, idempotent) | No | Yes | Small | Already have ToolAnnotations struct |
-| Icon support on Implementation/Tool/Prompt | No | Yes | Small | Icon struct with src, mime_type, theme |
+| ~~Tool output schema~~ | No | Yes | Small | Done — `output_schema` on `Tool` |
+| ~~Tool annotations (read_only, destructive, idempotent)~~ | No | Yes | Small | Done — `ToolAnnotations` struct with all hints |
+| ~~Icon support on Implementation/Tool/Prompt~~ | No | Yes | Small | Done — `Icon` struct + `icons` fields on params/results |
 | Extensions type-map | No | Yes | Medium | Per-request typed extension storage |
 | Tool task support (required/optional/forbidden) | No | Yes | Medium | ToolExecution + TaskSupport enum |
 | SEP-1724 MCP Extensions | No | Yes | Medium | Vendor extension capability negotiation |
@@ -80,45 +80,28 @@ Sources of truth:
 
 ### Thread-Safe Maps Design Note
 
-For Gap 10 (thread-safe registration maps), the Go implementation uses `sync.Map` and the Rust
-implementation uses immutable data structures behind `Arc`. For Crystal, the recommended approach is:
+Gap 10 is **done**. The Go implementation uses `sync.Map` and the Rust implementation uses
+immutable data structures behind `Arc`. For Crystal, the registration maps (`@tools`,
+`@prompts`, `@resources`, `@resource_templates` in `src/mcp/server/server.cr`) are now backed
+by `Sync::Map` from the [`dsisnero/sync-map`](https://github.com/dsisnero/sync-map) shard
+(`Sync::RWLock(:unchecked)` + `Hash`), the closest Crystal analog to Go's `sync.Map`.
 
-- Use a `sync/rw_lock` (Crystal shard) for reader-writer lock protecting each `Hash`
-- Alternative: use Crystal channels to serialize mutations through a single fiber
-- The `@mutex` field is already added as a placeholder
+This matters because Gap 8 (fiber-per-request dispatch) means handlers now run on their own
+fibers and can mutate registration concurrently. A bare `Hash` races under `-Dpreview_mt`
+(observed: "Duplicate large block deallocation" crash from concurrent rehash). `Sync::Map`
+serializes writers under the writer lock while readers run concurrently.
 
-This is deferred until the full fiber-per-request model (Gap 8, now done) requires it in
-production transports. InMemoryTransport is synchronous so the issue doesn't surface there.
+Coverage: `spec/server/registration_mt_spec.cr` stresses concurrent add / add+remove from
+8 parallel fibers under `-Dpreview_mt -Dexecution_context`; the standard `crystal spec` run
+keeps it `pending` (deterministic gate stays clean).
 
-## Known Issues
+## Resolved Issues
 
-### server_spec hangs/fails on synchronous request dispatch
+### Synchronous request dispatch hang (fixed in v0.3.0)
 
-`spec/server/server_spec.cr` has two pre-existing examples that fail/hang on `main`
-(reproduced with no PR applied):
-
-- `server_spec.cr:483` "should run request handlers synchronously in the calling fiber"
-  — **fails** (~4ms). Assertion `handler_f.should_not eq(test_fiber)` expects the handler
-  to run off the caller's fiber; with InMemoryTransport it runs inline in the test fiber.
-- `server_spec.cr:513` "should run request handlers synchronously" — **hangs indefinitely**
-  (killed at 45s, never reaches its own `timeout 5.seconds` guard).
-
-**Root cause.** Dispatch is inline/synchronous in the caller's fiber:
-`InMemoryTransport#send` -> `other._on_message.call` (no spawn,
-`src/mcp/shared/in_memory_transport.cr:33-37`) -> `Protocol#on_request` ->
-`handler.call` (`src/mcp/shared/protocol.cr:157`) -> response sent inline (line 160).
-Test 513 never registers `client_transport.on_message`, so the inline response delivery
-blocks on `@on_message_initialized.receive?` (`src/mcp/shared/transport.cr:44`), which is
-never closed. `send()` never returns, so the test fiber never arms its `select` timeout.
-
-This is consistent with the design note above: InMemoryTransport is intentionally
-synchronous, but these two specs assert off-fiber dispatch against it. PR #4
-("Add async MCP client request APIs") does **not** cause this — it spawns at the call site
-(`call_tool_async`) as a client-side workaround.
-
-**Fix directions.** (a) Dispatch incoming requests in their own fiber so 483 passes;
-(b) guard `@on_message_initialized.receive?` so an unregistered transport can't deadlock
-the sender, or have 513 register a client `on_message`.
+`server_spec.cr:483`/`:513` previously failed/hung because request dispatch ran inline in the
+caller's fiber. Fixed by spawning each handler in its own fiber in `Protocol#on_request`
+(Gap 8, shipped in v0.3.0). Both specs now pass and the full suite is green.
 
 ## Quality Gates
 
@@ -128,6 +111,7 @@ Run before declaring any feature complete:
 crystal tool format --check src spec
 ameba src spec
 crystal spec
+crystal spec -Dpreview_mt -Dexecution_context   # MT-safety gate (Gap 10)
 ```
 
-All three must pass with zero failures.
+All must pass with zero failures.
