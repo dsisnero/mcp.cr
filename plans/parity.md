@@ -68,13 +68,13 @@ Sources of truth:
 | Feature | Go | Rust | Complexity | Description |
 |---------|----|------|------------|-------------|
 | Handler signature validation (Gap 13) | Yes | Yes | Small | Crystal's type system mostly covers this |
-| Rich prompt argument schemas (Gap 17) | Yes | Yes | Small | Per-argument descriptions from annotations |
+| ~~Rich prompt argument schemas (Gap 17)~~ | Yes | Yes | Small | Done — `PromptArgument` struct has `description` field |
 | Elicitation schema builder | No | Yes | Large | Type-safe ElicitationSchema with enum/number/string builders |
 | ~~Tool output schema~~ | No | Yes | Small | Done — `output_schema` on `Tool` |
 | ~~Tool annotations (read_only, destructive, idempotent)~~ | No | Yes | Small | Done — `ToolAnnotations` struct with all hints |
 | ~~Icon support on Implementation/Tool/Prompt~~ | No | Yes | Small | Done — `Icon` struct + `icons` fields on params/results |
 | Extensions type-map | No | Yes | Medium | Per-request typed extension storage |
-| Tool task support (required/optional/forbidden) | No | Yes | Medium | ToolExecution + TaskSupport enum |
+| ~~Tool task support (required/optional/forbidden)~~ | No | Yes | Medium | Done — `TaskSupport` enum + `ToolExecution` struct on `Tool` |
 | SEP-1724 MCP Extensions | No | Yes | Medium | Vendor extension capability negotiation |
 | Router system (ToolRouter/PromptRouter) | No | Yes | Large | Composable routing with dynamic enable/disable |
 
