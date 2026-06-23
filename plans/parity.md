@@ -58,7 +58,7 @@ Sources of truth:
 | Feature | Go | Rust | Complexity | Description |
 |---------|----|------|------------|-------------|
 | ~~Client capabilities accessor (Gap 11)~~ | Yes | Yes | Trivial | Done |
-| Stateless HTTP server transport (Gap 12) | Yes | No | Medium | Simpler than StreamableHttpServerTransport |
+| ~~Stateless HTTP server transport (Gap 12)~~ | Yes | No | Medium | Done — covered by `StreamableHttpServerTransport` when `@stateful = false` (the default) |
 | ~~Resource template registration (Gap 14)~~ | Yes | Yes | Small | Done |
 | ~~SSE client transport (Gap 15)~~ | Yes | Yes | Medium | Done — SSE event parser, receive, send, endpoint extraction, reconnect with exponential backoff + Last-Event-ID |
 | Auto JSON Schema from handler types (Gap 2) | Yes | Yes | Large | Runtime schema generation for vanilla add_tool |
