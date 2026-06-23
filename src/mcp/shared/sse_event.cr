@@ -1,6 +1,24 @@
+# Streaming SSE event parser for the MCP client transport.
+#
+# Parses raw `text/event-stream` (W3C SSE) from an `IO` into
+# `SSEEvent` structs.  Handles multi-line `data:` concatenation,
+# comment lines (`: ...`), CRLF stripping, `id` / `event` /
+# `retry` fields, and space-stripping after `:` per the SSE spec.
+#
+# Used internally by `SseClientTransport` to parse incoming
+# server-to-client SSE frames.
+#
+# ```
+# io = IO::Memory.new("data: hello\n\n")
+# events = MCP::Shared.parse_sse_events(io)
+# events[0].data # => "hello"
+# ```
+
 module MCP::Shared
+  # A parsed Server-Sent Events frame.
   struct SSEEvent
     property id : String?
+    # Defaults to "message" per the SSE spec when no `event:` field present.
     property event : String
     property data : String
     property retry : Int32?
@@ -9,6 +27,8 @@ module MCP::Shared
     end
   end
 
+  # Parse SSE events from an IO stream, returning an array of parsed frames.
+  # Trailing incomplete events (no blank-line terminator) are discarded.
   def self.parse_sse_events(io : IO) : Array(SSEEvent)
     events = [] of SSEEvent
     event = PendingEvent.new
@@ -29,6 +49,7 @@ module MCP::Shared
 
       field = line[0...colon_idx]
       value = line[(colon_idx + 1)..]?
+      # Per SSE spec: strip the single leading space after `:`
       value = value ? value.lstrip(' ') : ""
       event.set_field(field, value)
     end
@@ -36,6 +57,7 @@ module MCP::Shared
     events
   end
 
+  # Accumulates fields for a single SSE event as lines arrive.
   private struct PendingEvent
     property id : String?
     property event : String?

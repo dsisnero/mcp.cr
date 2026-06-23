@@ -32,14 +32,27 @@ module MCP::Shared
       @extensions = Hash(String, JSON::Any).new
     end
 
+    # Check whether the request was cancelled by the client.
     def cancelled? : Bool
       @cancel_channel.try(&.closed?) || false
     end
 
+    # Store a typed value in the extensions map, serialized as JSON.
+    # Use in request handlers to attach per-request context.
+    #
+    # ```
+    # extra.set_extension("trace_id", some_struct)
+    # ```
     def set_extension(key : String, value)
       @extensions[key] = JSON.parse(value.to_json)
     end
 
+    # Retrieve a typed value by key, deserializing from JSON.
+    # Returns `nil` if the key is missing or the value doesn't match `T`.
+    #
+    # ```
+    # trace = extra.get_extension("trace_id", TraceContext)
+    # ```
     def get_extension(key : String, t : T.class) : T? forall T
       raw = @extensions[key]?
       return unless raw

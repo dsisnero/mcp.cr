@@ -1,30 +1,103 @@
+# MCP Annotator — compile-time macro-based server development.
+#
+# Declare an MCP server by annotating a Crystal class with `@[MCPServer]`.
+# Annotate individual methods with `@[Tool]`, `@[Prompt]`, or `@[Resource]`
+# and the macros auto-generate JSON Schema from Crystal types, register
+# handlers, and wire up transports — all at compile time.
+#
+# ## Annotations
+#
+# - `@[MCPServer(name:, version:, tools:, prompts:, resources:)]`
+#   Marks a class as an MCP server.  `name` and `version` populate
+#   `serverInfo`.  `tools: true`, `prompts: true`, `resources: true`
+#   enable the respective capability.
+#
+# - `@[Transport(type: :stdio | :sse | :streamable, endpoint: String?)]`
+#   Chooses the transport.  Defaults to `:stdio`.
+#
+# - `@[Tool(name: String?, description: String?)]`
+#   Marks a method as a tool handler.  Auto-generates `inputSchema`
+#   from method parameter types.
+#
+# - `@[Param(description:, minimum:, maximum:)]`
+#   Adds constraints / descriptions to a tool parameter.
+#
+# - `@[Prompt(name:, description:)]`
+#   Marks a method as a prompt handler.  Can accept `context` and `topic`
+#   parameters.
+#
+# - `@[Resource(name:, uri:, description:, mime_type:)]`
+#   Marks a method as a resource read handler.
+#
+# ## Usage
+#
+# ```
+# require "mcp"
+#
+# @[MCP::MCPServer(name: "my_server", version: "1.0.0", tools: true)]
+# @[MCP::Transport(type: :streamable, endpoint: "/mcp")]
+# class MyServer
+#   include MCP::Annotator
+#
+#   @[MCP::Tool(description: "Adds two numbers")]
+#   def add(
+#     @[MCP::Param(description: "First operand")] a : Int32,
+#     @[MCP::Param(description: "Second operand")] b : Int32,
+#   ) : Int32
+#     a + b
+#   end
+# end
+#
+# MyServer.run   # Starts the server on port 8080 with Streamable HTTP
+# ```
+#
+# The macro system calls `server.add_tool` for each annotated method,
+# generating the tool name from the method name and the input/output
+# schemas from the Crystal type annotations (backed by the `json-schema`
+# shard).  Transport setup is handled automatically.
+
 require "./runner"
 
 module MCP
-  # Annotation for Params
+  # Mark a method parameter — provides description, minimum, and maximum
+  # metadata that gets embedded in the generated JSON Schema.
   annotation Param
   end
 
-  # Annotation for marking methods as MCP tools
+  # Mark a method as an MCP tool.  The method's return type becomes
+  # the tool's output (wrapped as `TextContent`; `CallToolResult` is
+  # also accepted as a direct return).
   annotation Tool
   end
 
-  # Annotation for marking methods as MCP prompts
+  # Mark a method as an MCP prompt.  Accepts optional `context : String?`
+  # and `topic : String?` parameters.
   annotation Prompt
   end
 
-  # Annotation for marking methods as MCP resources
+  # Mark a method as an MCP resource read handler.  The `uri` parameter
+  # must match the declared resource URI.
   annotation Resource
   end
 
-  # Annotation for server configuration
+  # Configure server metadata and capabilities at the class level.
+  #
+  # - `name` / `version` become `serverInfo` in the initialize response.
+  # - `tools` / `prompts` / `resources` enable the respective capabilities
+  #   (default `false`) and auto-register list-changed notifications.
   annotation MCPServer
   end
 
-  # Annotation for Transport
+  # Choose the transport for `YourServer.run`.
+  #
+  # - `type`: `:stdio`, `:sse`, or `:streamable`
+  # - `endpoint`: the HTTP path for SSE / Streamable (default `/sse`, `/mcp`)
+  # - `port`: the TCP port (default 8080)
   annotation Transport
   end
 
+  # Inclusion module — `include MCP::Annotator` triggers the macro
+  # expansion that registers annotated methods and sets up the transport.
   module Annotator
     macro included
         getter! server : MCP::Server::Server
@@ -91,6 +164,10 @@ module MCP
         {% end %}
         end
 
+        # Macro-generated method: maps a Crystal type name (String) to
+        # a JSON Schema `Hash`.  Handles primitives, arrays, sets,
+        # tuples, named tuples, unions, nilable types, and enums.
+        # Called at compile time during tool/prompt/resource registration.
         protected def self._map_crystal_type_to_json_schema(crystal_type : String) : Hash(String, JSON::Any)
             case crystal_type
             # Numeric types

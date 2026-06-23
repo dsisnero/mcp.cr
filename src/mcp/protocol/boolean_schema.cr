@@ -1,3 +1,8 @@
+# MCP 2025-06-18 elicitation schema: boolean property.
+#
+# Ported from Rust rmcp `model::elicitation_schema::BooleanSchema`.
+# Supports title, description, and default value.
+
 module MCP::Protocol
   struct BooleanSchema
     include JSON::Serializable

@@ -53,10 +53,14 @@ module MCP::Server
       @_tool_router ||= build_tool_router
     end
 
+    # Lazily-exposed PromptRouter view over registered prompts.
+    # Supports enable/disable, dispatch, and inspection.
     def prompt_router : PromptRouter
       @_prompt_router ||= build_prompt_router
     end
 
+    # Lazily-exposed ResourceRouter view over registered resources.
+    # Dispatches by exact URI.
     def resource_router : ResourceRouter
       @_resource_router ||= build_resource_router
     end
@@ -196,9 +200,20 @@ module MCP::Server
       add_tool(name, description, input, annotations: annotations, output_schema: oschema, &handler)
     end
 
-    # Typed-handler variant: auto-generates the input schema from the handler's
-    # input type (which must include JSON::Serializable) and auto-deserializes
-    # the raw JSON arguments into the typed input before calling the handler.
+    # Typed-handler variant: takes a `Proc(T -> CallToolResult)` where `T`
+    # includes `JSON::Serializable`.  The input schema is auto-generated
+    # from `T` using the `json-schema` shard (`Tool::Input.from(T.class)`),
+    # and `CallToolRequestParams.arguments` are auto-deserialized into `T`
+    # before the handler runs.
+    #
+    # ```
+    # struct MyInput
+    #   include JSON::Serializable
+    #   property name : String
+    # end
+    #
+    # server.add_tool("greet", "Greets", ->(input : MyInput) { ... })
+    # ```
     def add_tool(name : String, description : String,
                  handler : T -> MCP::Protocol::CallToolResult,
                  annotations : MCP::Protocol::ToolAnnotations? = nil,

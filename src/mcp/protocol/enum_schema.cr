@@ -1,4 +1,30 @@
+# MCP 2025-06-18 elicitation schema: enum property.
+#
+# Ported from Rust rmcp `model::elicitation_schema::EnumSchema`.
+# Supports three variants:
+#
+# 1. **Untitled single-select** (`{type: "string", enum: [...], default}`)
+#    — a flat list of string values, choose-one.
+# 2. **Titled single-select** (`{type: "string", oneOf: [{const, title}], default}`)
+#    — each value has a human-readable title.
+# 3. **Untitled multi-select** (`{type: "array", ...}`) — choose-many with
+#    min/max items.
+#
+# The builder enforces that `default` is one of the enum values.
+#
+# ```
+# # Untitled single-select
+# EnumSchema.builder(["red", "green", "blue"]).with_default("red").build
+#
+# # Titled single-select
+# EnumSchema.builder(["us", "uk"]).titled.with_default("us").build
+#
+# # Multi-select (untitled)
+# EnumSchema.builder(["a","b","c"]).multi_select.min_items(1).max_items(3).build
+# ```
+
 module MCP::Protocol
+  # A `{const, title}` pair used in titled single-select variants.
   struct ConstTitle
     include JSON::Serializable
 
@@ -10,6 +36,8 @@ module MCP::Protocol
     end
   end
 
+  # The unified enum schema, representing any of the three variants above.
+  # Construct via `EnumSchema.builder(values)`.
   struct EnumSchema
     include JSON::Serializable
 
@@ -34,11 +62,16 @@ module MCP::Protocol
                    @min_items : Int64? = nil, @max_items : Int64? = nil, @default : JSON::Any? = nil)
     end
 
+    # Start building a schema from the given string values.
     def self.builder(values : Array(String))
       EnumSchemaBuilder.new(values)
     end
   end
 
+  # Fluent builder for `EnumSchema`.
+  #
+  # Call `titled` before `build` to produce a `oneOf` variant;
+  # call `multi_select` to produce an `array`-typed multi-select.
   class EnumSchemaBuilder
     @values : Array(String)
     @titled = false
@@ -52,11 +85,13 @@ module MCP::Protocol
     def initialize(@values)
     end
 
+    # Produce a titled variant (`oneOf`) instead of untitled (`enum`).
     def titled : self
       @titled = true
       self
     end
 
+    # Switch to multi-select mode (type "array" with minItems/maxItems).
     def multi_select : self
       @multi = true
       self
@@ -82,6 +117,7 @@ module MCP::Protocol
       self
     end
 
+    # Set the default value.  Must be one of the enum values.
     def with_default(val : String) : self
       raise ArgumentError.new("default value must be in enum values") unless @values.includes?(val)
       @default = val

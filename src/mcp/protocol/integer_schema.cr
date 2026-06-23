@@ -1,3 +1,9 @@
+# MCP 2025-06-18 elicitation schema: integer property.
+#
+# Ported from Rust rmcp `model::elicitation_schema::IntegerSchema`.
+# Same builder pattern as `NumberSchema`, using `Int64` for
+# minimum/maximum/default.
+
 module MCP::Protocol
   struct IntegerSchema
     include JSON::Serializable
@@ -32,6 +38,7 @@ module MCP::Protocol
       self
     end
 
+    # Set minimum and maximum (inclusive).  Raises if `min > max`.
     def range(min : Int64, max : Int64) : self
       raise ArgumentError.new("minimum must be <= maximum") if min > max
       @minimum = min
