@@ -7,6 +7,7 @@ module MCP::Client
 
     @http_client : HTTP::Client?
     @headers : Hash(String, String)
+    @post_endpoint : String?
     @done = Channel(Bool).new
 
     def initialize(@endpoint : String)
@@ -33,6 +34,10 @@ module MCP::Client
             end
 
             MCP::Shared.parse_sse_events(response.body_io).each do |sse_event|
+              if sse_event.event == "endpoint"
+                @post_endpoint = sse_event.data unless sse_event.data.empty?
+                next
+              end
               next unless sse_event.event == "message"
               next if sse_event.data.empty?
 
@@ -57,13 +62,14 @@ module MCP::Client
 
     def send(message : MCP::Protocol::JSONRPCMessage)
       uri = URI.parse(@endpoint)
+      path = @post_endpoint || uri.request_target
       client = @http_client || HTTP::Client.new(uri)
 
       http_headers = HTTP::Headers.new
       http_headers["Content-Type"] = "application/json"
       @headers.each { |k, v| http_headers[k] ||= v }
 
-      response = client.post(uri.request_target, headers: http_headers, body: message.to_json)
+      response = client.post(path, headers: http_headers, body: message.to_json)
 
       unless response.success?
         raise "SSE POST failed: HTTP #{response.status_code}"
