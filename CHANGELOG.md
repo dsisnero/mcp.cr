@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.0] - 2026-06-23
+
+### Added
+
+- **Thread-safe registration maps (Gap 10)**: `@tools`, `@prompts`, `@resources`, and `@resource_templates` in `Server` are now backed by `Sync::Map` from `dsisnero/sync-map`, providing concurrent-safe mutations under fiber-per-request dispatch. Includes a multi-threaded stress spec (`-Dpreview_mt -Dexecution_context`).
+
+- **SSE client transport (Gap 15)**: `MCP::Client::SseClientTransport` for connecting to MCP servers over Server-Sent Events. Full lifecycle: SSE event stream parser (`MCP::Shared::SSEEvent`), HTTP GET for receive path, endpoint-url extraction from control frames, HTTP POST for send path, and automatic reconnect with exponential backoff and `Last-Event-ID` tracking.
+
+- **Auto-generated JSON Schema from typed handlers (Gap 2)**: `Server#add_tool` overload accepting `Proc(T -> CallToolResult)` where `T : JSON::Serializable`. The input schema is auto-generated from `T` via the `json-schema` shard (`Tool::Input.from(T.class)`), and the handler receives a fully-deserialized typed input instead of raw `CallToolRequestParams`.
+
+- **Elicitation schema builder**: Type-safe fluent builders ported from Rust rmcp for constructing MCP 2025-06-18 compliant elicitation schemas. Includes `StringSchema` (email/uri/date/date-time formats), `NumberSchema`, `IntegerSchema`, `BooleanSchema`, `EnumSchema` (single/multi-select, titled/untitled), `PrimitiveSchema` union, and `ElicitationSchema` / `ElicitationSchemaBuilder` with convenience methods (`required_email`, `optional_integer`, etc.).
+
+- **Router system**: `ToolRouter`, `PromptRouter`, and `ResourceRouter` provide name-based dispatch with enable/disable and introspection. `Server#tool_router`, `#prompt_router`, and `#resource_router` lazily expose views over the registered handlers.
+
+- **Typed request-handler extension accessors (Extensions type-map)**: `RequestHandlerExtra#set_extension(key, value)` and `#get_extension(key, T)` for type-safe per-request extension storage with automatic JSON serialization/deserialization.
+
+- **SEP-1724 MCP Extensions**: Extensions capability negotiation now has spec coverage confirming extensions flow through the initialize handshake.
+
+### Changed
+
+- **Fixed pre-existing block-passing bugs**: `Server#add_prompt` overloads now correctly pass `Proc` handlers as blocks (`&handler`), resolving latent compilation issues uncovered by the Router wiring.
+
+### Fixed
+
+- **Parity plan reconciled**: Stale "Missing" entries for already-implemented features (HTTP Client Transport, Stateless HTTP, Tool output schema, Tool annotations, Icon support, Rich prompt argument schemas, Tool task support) are now correctly marked done in `plans/parity.md`.
+
 ## [0.3.0] - 2026-06-22
 
 ### Added

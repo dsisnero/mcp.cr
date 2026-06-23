@@ -145,6 +145,42 @@ require "mcp"
     server.connect(transport)
 ```
 
+#### Auto-generating tool input schemas
+
+Instead of manually constructing a `Tool::Input`, pass a typed handler `Proc(T -> CallToolResult)`
+where `T` includes `JSON::Serializable`. The input schema is auto-generated from `T` via
+the `json-schema` shard, and the handler receives a fully-deserialized typed input:
+
+```crystal
+struct MyToolInput
+  include JSON::Serializable
+  property name : String
+  property age : Int32?
+end
+
+server.add_tool("my-tool", "Processes user input",
+  ->(input : MyToolInput) : MCP::Protocol::CallToolResult {
+    MCP::Protocol::CallToolResult.new([
+      MCP::Protocol::TextContentBlock.new("Hello #{input.name}")
+    ])
+  }
+)
+```
+
+#### ToolRouter for dynamic enable/disable
+
+`Server#tool_router` exposes a `ToolRouter` view over registered tools,
+supporting enable/disable and name-based dispatch. `Server#prompt_router`
+and `Server#resource_router` work the same way:
+
+```crystal
+server.add_tool("greet", "Greets", MCP::Protocol::Tool::Input.new) { |_| ... }
+
+server.tool_router.has_tool?("greet")  # => true
+server.tool_router.disable("greet")
+server.tool_router.enable("greet")
+```
+
 ### Creating a Client
 
 ```crystal
@@ -184,13 +220,41 @@ It returns a `Channel` that yields an `MCP::Shared::AsyncResult`; call `#unwrap`
 the result (it re-raises any handler error):
 
 ```crystal
-# Fire two tool calls without waiting on the first
 first  = client.call_tool_async("slow-tool", {} of String => JSON::Any)
 second = client.call_tool_async("slow-tool", {} of String => JSON::Any)
 
-# Collect results when ready
 result_a = first.receive.unwrap
 result_b = second.receive.unwrap
+```
+
+#### SSE client transport
+
+Connect to an MCP server over Server-Sent Events with automatic reconnect:
+
+```crystal
+transport = MCP::Client::SseClientTransport.new("http://host:port/sse")
+transport.on_message { |msg| ... }
+transport.start
+
+# The transport auto-extracts the POST endpoint from the SSE
+# 'event: endpoint' control frame; send() posts to it.
+transport.send(MCP::Protocol::PingRequest.new)
+transport.close
+```
+
+#### Elicitation schema builder
+
+Build MCP 2025-06-18 compliant elicitation schemas with a fluent, type-safe API:
+
+```crystal
+schema = MCP::Protocol::ElicitationSchema.builder
+  .required_email("email")
+  .required_integer("age", 0_i64, 150_i64)
+  .optional_bool("newsletter", false)
+  .title("User Registration")
+  .build
+
+schema.to_json # => {"type":"object","properties":{...},"required":["email","age"]}
 ```
 
 Refer to [samples](samples) folder for samples
