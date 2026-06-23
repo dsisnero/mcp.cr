@@ -190,6 +190,23 @@ module MCP::Client
       request(obj, options)
     end
 
+    def call_tool_async(name : String, arguments : Hash(String, JSON::Any), compatibility : Bool = false, options : MCP::Shared::RequestOptions? = nil) : Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult | MCP::Protocol::CompatibilityCallToolResult))
+      channel = Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult | MCP::Protocol::CompatibilityCallToolResult)).new(1)
+
+      spawn do
+        begin
+          result = call_tool(name, arguments, compatibility, options)
+          channel.send(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult | MCP::Protocol::CompatibilityCallToolResult).new(value: result))
+        rescue ex
+          channel.send(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult | MCP::Protocol::CompatibilityCallToolResult).new(error: ex))
+        ensure
+          channel.close
+        end
+      end
+
+      channel
+    end
+
     def list_tools(req : MCP::Protocol::ListToolsRequest = MCP::Protocol::ListToolsRequest.new, options : MCP::Shared::RequestOptions? = nil) : MCP::Protocol::ListToolsResult?
       request(req, options).as?(MCP::Protocol::ListToolsResult)
     end

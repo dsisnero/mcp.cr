@@ -13,6 +13,23 @@ module MCP::Shared
   alias RequestId = MCP::Protocol::RequestId
   alias RequestParams = MCP::Protocol::RequestParams
   alias Notification = MCP::Protocol::Notification
+
+  struct AsyncResult(T)
+    getter value : T?
+    getter error : Exception?
+
+    def initialize(@value : T? = nil, @error : Exception? = nil)
+    end
+
+    def success? : Bool
+      @error.nil?
+    end
+
+    def unwrap : T
+      raise @error.not_nil! if @error
+      @value.not_nil!
+    end
+  end
 end
 
 require "./transport"
