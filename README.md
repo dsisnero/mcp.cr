@@ -14,12 +14,12 @@ This Crystal shard brings full MCP compatibility to your applications, allowing 
 * Manage the full MCP message flow and lifecycle events effortlessly
 
 
-### TODO 
+### TODO
 
-Implement 
+Implement
 
 - [X] SSE Transport
-- [X] Streamable HTTP Transport 
+- [X] Streamable HTTP Transport
 - [ ] WebSocket transports (optional)
 
 ## Installation
@@ -128,7 +128,7 @@ This annotation defines the supported transport types for the MCP Server. It sup
 require "mcp"
 
     server = MCP::Server::Server.new(
-      MCP::Protocol::Implementation.new(name: "test server", version: "1.0"), 
+      MCP::Protocol::Implementation.new(name: "test server", version: "1.0"),
       MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(
         MCP::Server::ServerCapabilities.new
         .with_tools
@@ -175,6 +175,22 @@ require "mcp"
     # Read a specific resource
     resource = MCP::Protocol::ReadResourceRequest.new(uri: "file:///example.txt")
     content = client.read_resource(resource)
+```
+
+#### Overlapping tool calls (async)
+
+A single client can issue overlapping, non-blocking tool calls with `call_tool_async`.
+It returns a `Channel` that yields an `MCP::Shared::AsyncResult`; call `#unwrap` to get
+the result (it re-raises any handler error):
+
+```crystal
+# Fire two tool calls without waiting on the first
+first  = client.call_tool_async("slow-tool", {} of String => JSON::Any)
+second = client.call_tool_async("slow-tool", {} of String => JSON::Any)
+
+# Collect results when ready
+result_a = first.receive.unwrap
+result_b = second.receive.unwrap
 ```
 
 Refer to [samples](samples) folder for samples

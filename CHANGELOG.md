@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.0] - 2026-06-22
+
+### Added
+
+- **Async client request APIs**: `MCP::Client::Client#call_tool_async`, `MCP::Shared::Protocol#request_async`, and `MCP::Shared::AsyncResult(T)`. A single client can now issue overlapping, non-blocking tool calls — each returns a `Channel` carrying an `AsyncResult` (`#unwrap` raises on error, `#success?` to check). ([#4](https://github.com/dsisnero/mcp.cr/pull/4))
+
+- **Request cancellation propagation (Gap 9)**: `MCP::Shared::RequestHandlerExtra#cancelled?` reflects a closed cancel channel, so request handlers can observe client-initiated cancellation mid-flight.
+
+- **Tool CRUD integration tests**: full pet lifecycle (add_tool → tools/list → tools/call → remove_tool), capability-not-supported errors, and unknown-tool errors. Plus concurrent/overlapping handler specs.
+
+### Changed
+
+- **Concurrent server request dispatch**: `MCP::Shared::Protocol#on_request` now runs each handler in its own fiber (spawn-per-request) with inflight tracking, replacing the previous inline/synchronous dispatch. Handlers can overlap, and the in-memory transport caller is no longer blocked by inline response delivery.
+
+### Fixed
+
+- **Idempotent transport close**: `InMemoryTransport` and `StreamableHttpServerTransport` now guard against double-close (`@closed` flag), preventing errors on repeated `close()`.
+
+- **Stale inflight signal**: eliminated a stale `inflight_zero` signal by draining with a while-loop in the inflight-request tracker.
+
 ## [0.2.1] - 2026-06-12
 
 ### Fixed
