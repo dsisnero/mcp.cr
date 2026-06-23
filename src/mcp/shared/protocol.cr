@@ -35,6 +35,21 @@ module MCP::Shared
     def cancelled? : Bool
       @cancel_channel.try(&.closed?) || false
     end
+
+    def set_extension(key : String, value)
+      @extensions[key] = JSON.parse(value.to_json)
+    end
+
+    def get_extension(key : String, t : T.class) : T? forall T
+      raw = @extensions[key]?
+      return unless raw
+
+      begin
+        T.from_json(raw.to_json)
+      rescue ex : JSON::ParseException
+        nil
+      end
+    end
   end
 
   abstract class Protocol
