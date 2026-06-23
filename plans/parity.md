@@ -69,7 +69,7 @@ Sources of truth:
 |---------|----|------|------------|-------------|
 | Handler signature validation (Gap 13) | Yes | Yes | Small | Crystal's type system mostly covers this |
 | ~~Rich prompt argument schemas (Gap 17)~~ | Yes | Yes | Small | Done — `PromptArgument` struct has `description` field |
-| Elicitation schema builder | No | Yes | Large | Type-safe ElicitationSchema with enum/number/string builders |
+| ~~Elicitation schema builder~~ | No | Yes | Large | Done — `ElicitationSchema` + `ElicitationSchemaBuilder` with `StringSchema`, `NumberSchema`, `IntegerSchema`, `BooleanSchema`, `EnumSchema`, `PrimitiveSchema`; fluent typed API ported from Rust rmcp |
 | ~~Tool output schema~~ | No | Yes | Small | Done — `output_schema` on `Tool` |
 | ~~Tool annotations (read_only, destructive, idempotent)~~ | No | Yes | Small | Done — `ToolAnnotations` struct with all hints |
 | ~~Icon support on Implementation/Tool/Prompt~~ | No | Yes | Small | Done — `Icon` struct + `icons` fields on params/results |
