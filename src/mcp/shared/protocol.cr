@@ -231,6 +231,22 @@ module MCP::Shared
       @transport.try &.close
     end
 
+    def request_async(request : JSONRPCRequest, options : RequestOptions? = nil) : Channel(AsyncResult(Result))
+      channel = Channel(AsyncResult(Result)).new(1)
+
+      spawn do
+        begin
+          channel.send(AsyncResult(Result).new(value: self.request(request, options)))
+        rescue ex
+          channel.send(AsyncResult(Result).new(error: ex))
+        ensure
+          channel.close
+        end
+      end
+
+      channel
+    end
+
     abstract def assert_capability_for_method(method : String)
     abstract def assert_notification_capability(method : String)
     abstract def assert_request_handler_capability(method : String)

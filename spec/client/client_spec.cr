@@ -333,6 +333,53 @@ describe MCP::Client::Client do
     resp.should be_a(MCP::Protocol::JSONRPCResponse)
     elicitation_called.should be_true
   end
+
+  it "call_tool_async should allow overlapping tool requests from one client" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new.with_tools)
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    entered = Channel(Int32).new(2)
+    release = Channel(Nil).new(2)
+
+    server.add_tool("slow-tool", "Slow tool", MCP::Protocol::Tool::Input.new) do |_|
+      entered.send(1)
+      release.receive
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    end
+
+    client = MCP::Client::Client.new(
+      client_info: MCP::Protocol::Implementation.new("test client", "1.0"),
+      client_options: MCP::Client::ClientOptions.new(
+        capabilities: MCP::Protocol::ClientCapabilities.new(sampling: Hash(String, JSON::Any).new)
+      )
+    )
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+
+    wg = WaitGroup.new
+    wg.spawn { client.connect(client_transport) }
+    wg.spawn { server.connect(server_transport) }
+    wg.wait
+
+    first = client.call_tool_async("slow-tool", {} of String => JSON::Any)
+    second = client.call_tool_async("slow-tool", {} of String => JSON::Any)
+
+    entered.receive.should eq(1)
+
+    select
+    when entered.receive
+      # expected: second request also entered before first was released
+    when timeout 1.second
+      fail "second async tool call did not enter concurrently"
+    end
+
+    release.send(nil)
+    release.send(nil)
+
+    first.receive.unwrap.should be_a(MCP::Protocol::CallToolResult)
+    second.receive.unwrap.should be_a(MCP::Protocol::CallToolResult)
+  end
 end
 
 class ClientTransport < MCP::Shared::AbstractTransport

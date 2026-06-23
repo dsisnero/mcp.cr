@@ -538,6 +538,48 @@ describe MCP::Server::Server do
     end
   end
 
+  it "should allow overlapping tool call handlers" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    entered = Channel(Int32).new(2)
+    release = Channel(Nil).new(2)
+    responses = Channel(MCP::Protocol::JSONRPCMessage).new(2)
+
+    server.add_tool("slow-tool", "Slow tool", MCP::Protocol::Tool::Input.new) do |_|
+      entered.send(1)
+      release.receive
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+    client_transport.on_message { |msg| responses.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    spawn { client_transport.send(MCP::Protocol::CallToolRequest.new(name: "slow-tool", arguments: {} of String => JSON::Any)) }
+    spawn { client_transport.send(MCP::Protocol::CallToolRequest.new(name: "slow-tool", arguments: {} of String => JSON::Any)) }
+
+    entered.receive.should eq(1)
+
+    select
+    when entered.receive
+      # expected: second request reaches handler before first is released
+    when timeout 1.second
+      fail "second tool call did not enter handler concurrently"
+    end
+
+    release.send(nil)
+    release.send(nil)
+
+    2.times do
+      resp = responses.receive
+      resp.should be_a(MCP::Protocol::JSONRPCResponse)
+    end
+  end
+
   it "add_tool should accept annotations" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
