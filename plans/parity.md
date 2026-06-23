@@ -60,7 +60,7 @@ Sources of truth:
 | ~~Client capabilities accessor (Gap 11)~~ | Yes | Yes | Trivial | Done |
 | Stateless HTTP server transport (Gap 12) | Yes | No | Medium | Simpler than StreamableHttpServerTransport |
 | ~~Resource template registration (Gap 14)~~ | Yes | Yes | Small | Done |
-| SSE client transport (Gap 15) | Partial | Yes | Medium | Receive + send + endpoint extraction done; reconnect pending |
+| ~~SSE client transport (Gap 15)~~ | Yes | Yes | Medium | Done — SSE event parser, receive, send, endpoint extraction, reconnect with exponential backoff + Last-Event-ID |
 | Auto JSON Schema from handler types (Gap 2) | Yes | Yes | Large | Runtime schema generation for vanilla add_tool |
 
 ### Tier 4 — Nice-to-have
