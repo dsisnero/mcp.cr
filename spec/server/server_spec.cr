@@ -480,7 +480,7 @@ describe MCP::Server::Server do
     result.resource_templates.first.name.should eq("MyTemplate")
   end
 
-  it "should run request handlers synchronously in the calling fiber" do
+  it "should run request handlers concurrently in a separate fiber" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
@@ -510,7 +510,7 @@ describe MCP::Server::Server do
     handler_f.should_not eq(test_fiber)
   end
 
-  it "should run request handlers synchronously" do
+  it "should run request handlers and complete before timeout" do
     server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools))
     impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
     server = MCP::Server::Server.new(impl, server_options)
@@ -862,5 +862,165 @@ describe MCP::Server::Server do
     result.should be_a(MCP::Protocol::GetPromptResult)
     result.description.should eq("A greeting prompt")
     result.messages.size.should eq(1)
+  end
+
+  # Full CRUD integration: add_tool → tools/list → tools/call → remove_tool
+
+  it "add_tool, tools/list, tools/call, remove_tool — full pet CRUD lifecycle" do
+    server_options = MCP::Server::ServerOptions.new(
+      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
+    )
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(10)
+    client_transport.on_message { |msg| received.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    # 1. Initially empty
+    client_transport.send(MCP::Protocol::ListToolsRequest.new)
+    msg = received.receive
+    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+    tools.should be_empty
+
+    # 2. Add a tool (create pet)
+    pet_input = MCP::Protocol::Tool::Input.new(
+      properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
+      required: ["name"]
+    )
+    server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created fluffy")] of MCP::Protocol::ContentBlock)
+    }
+
+    # 3. List tools — pet tool appears
+    client_transport.send(MCP::Protocol::ListToolsRequest.new)
+    msg = received.receive
+    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+    tools.size.should eq(1)
+    tools.first.name.should eq("create_pet")
+
+    # 4. Call the tool (create fluffy)
+    client_transport.send(MCP::Protocol::CallToolRequest.new(
+      name: "create_pet",
+      arguments: {"name" => JSON::Any.new("fluffy")}
+    ))
+    msg = received.receive
+    msg.should be_a(MCP::Protocol::JSONRPCResponse)
+    result = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::CallToolResult)
+    result.content.first.as(MCP::Protocol::TextContentBlock).text.should eq("created fluffy")
+
+    # 5. Delete pet (remove tool)
+    server.remove_tool("create_pet").should be_true
+
+    # 6. List tools — empty again
+    client_transport.send(MCP::Protocol::ListToolsRequest.new)
+    msg = received.receive
+    tools = msg.as(MCP::Protocol::JSONRPCResponse).result.as(MCP::Protocol::ListToolsResult).tools
+    tools.size.should eq(0)
+  end
+
+  it "add_tool raises when tools capability is not supported" do
+    server_options = MCP::Server::ServerOptions.new(MCP::Server::ServerCapabilities.new)
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    pet_input = MCP::Protocol::Tool::Input.new(
+      properties: {"name" => JSON::Any.new({"type" => JSON::Any.new("string")})},
+      required: ["name"]
+    )
+    expect_raises(ArgumentError, "Server does not support tools capability") do
+      server.add_tool("create_pet", "Create a new pet", pet_input) { |_req|
+        MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("created")] of MCP::Protocol::ContentBlock)
+      }
+    end
+  end
+
+  it "tools/call with unknown tool name returns error" do
+    server_options = MCP::Server::ServerOptions.new(
+      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
+    )
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(1)
+    client_transport.on_message { |msg| received.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    client_transport.send(MCP::Protocol::CallToolRequest.new(
+      name: "nonexistent_tool",
+      arguments: {} of String => JSON::Any
+    ))
+    msg = received.receive
+    msg.should be_a(MCP::Protocol::JSONRPCError)
+  end
+
+  it "RequestHandlerExtra#cancelled? returns false by default" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    extra.cancelled?.should be_false
+  end
+
+  it "RequestHandlerExtra#cancelled? returns true after cancel channel is closed" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    ch = Channel(Nil).new
+    extra.cancel_channel = ch
+    extra.cancelled?.should be_false
+    ch.close
+    extra.cancelled?.should be_true
+  end
+
+  it "RequestHandlerExtra#cancelled? returns false when cancel_channel is nil" do
+    extra = MCP::Shared::RequestHandlerExtra.new
+    extra.cancel_channel.should be_nil
+    extra.cancelled?.should be_false
+  end
+
+  it "handler detects cancellation and aborts long-running operation" do
+    server_options = MCP::Server::ServerOptions.new(
+      MCP::Server::ServerCapabilities.new(tools: MCP::Server::ServerCapabilities.new.with_tools.tools)
+    )
+    impl = MCP::Protocol::Implementation.new(name: "test server", version: "1.0")
+    server = MCP::Server::Server.new(impl, server_options)
+
+    done_chan = Channel(String).new(1)
+
+    server.request_handler(MCP::Protocol::ToolsCall) do |_params, extra|
+      100.times do
+        break if extra.cancelled?
+        sleep(5.milliseconds)
+      end
+      if extra.cancelled?
+        done_chan.send("cancelled")
+      else
+        done_chan.send("completed")
+      end
+      MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("ok")] of MCP::Protocol::ContentBlock)
+    end
+
+    client_transport, server_transport = MCP::Shared::InMemoryTransport.create_linked_pair
+    received = Channel(MCP::Protocol::JSONRPCMessage).new(5)
+    client_transport.on_message { |msg| received.send(msg) }
+
+    spawn { server.connect(server_transport) }
+    Fiber.yield
+
+    req = MCP::Protocol::CallToolRequest.new(
+      name: "slow-tool",
+      arguments: {} of String => JSON::Any
+    )
+    req_id = req.id.not_nil!
+    client_transport.send(req)
+
+    sleep(30.milliseconds)
+
+    client_transport.send(MCP::Protocol::CancelledNotification.new(request_id: req_id))
+
+    result = done_chan.receive
+    result.should eq("cancelled")
   end
 end

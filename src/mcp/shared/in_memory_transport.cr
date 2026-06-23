@@ -4,6 +4,7 @@ module MCP::Shared
   class InMemoryTransport < AbstractTransport
     property other_transport : InMemoryTransport?
     @message_queue = [] of JSONRPCMessage
+    @closed = false
 
     # Creates a pair of linked in-memory transports that can communicate with each other.
     # One should be passed to a Client and one to a Server.
@@ -24,6 +25,8 @@ module MCP::Shared
     end
 
     def close
+      return if @closed
+      @closed = true
       other = other_transport
       self.other_transport = nil
       other.try(&.close)

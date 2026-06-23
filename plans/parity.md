@@ -41,7 +41,7 @@ Sources of truth:
 | HTTP Client Transport (Gap 1) | Yes | Yes | Medium | Cannot connect to remote MCP servers over HTTP |
 | ~~Auto list-changed on register/deregister (Gap 3)~~ | Yes | Yes | Small | Done |
 | ~~Spawn-per-request concurrency (Gap 8)~~ | Yes | Yes | Medium | Done |
-| Request cancellation propagation (Gap 9) | Yes | Yes | Medium | CancelledNotification received but not routed to handler |
+| ~~Request cancellation propagation (Gap 9)~~ | Yes | Yes | Medium | Done — `RequestHandlerExtra#cancelled?` + cancel channel routed to handler |
 
 ### Tier 2 — High
 
@@ -52,7 +52,6 @@ Sources of truth:
 | ~~Pagination logic in list handlers (Gap 7)~~ | Yes | Yes | Medium | Done |
 | ~~WithAnnotations builder (Gap 5)~~ | Yes | Yes | Small | Done |
 | Thread-safe registration maps (Gap 10) | Yes | Yes | Small | RW lock-protected Hash; use Crystal `sync/rw_lock` shard |
-| Request cancellation propagation (Gap 9) | Yes | Yes | Medium | Moved to Tier 1 |
 
 ### Tier 3 — Medium
 
@@ -90,6 +89,36 @@ implementation uses immutable data structures behind `Arc`. For Crystal, the rec
 
 This is deferred until the full fiber-per-request model (Gap 8, now done) requires it in
 production transports. InMemoryTransport is synchronous so the issue doesn't surface there.
+
+## Known Issues
+
+### server_spec hangs/fails on synchronous request dispatch
+
+`spec/server/server_spec.cr` has two pre-existing examples that fail/hang on `main`
+(reproduced with no PR applied):
+
+- `server_spec.cr:483` "should run request handlers synchronously in the calling fiber"
+  — **fails** (~4ms). Assertion `handler_f.should_not eq(test_fiber)` expects the handler
+  to run off the caller's fiber; with InMemoryTransport it runs inline in the test fiber.
+- `server_spec.cr:513` "should run request handlers synchronously" — **hangs indefinitely**
+  (killed at 45s, never reaches its own `timeout 5.seconds` guard).
+
+**Root cause.** Dispatch is inline/synchronous in the caller's fiber:
+`InMemoryTransport#send` -> `other._on_message.call` (no spawn,
+`src/mcp/shared/in_memory_transport.cr:33-37`) -> `Protocol#on_request` ->
+`handler.call` (`src/mcp/shared/protocol.cr:157`) -> response sent inline (line 160).
+Test 513 never registers `client_transport.on_message`, so the inline response delivery
+blocks on `@on_message_initialized.receive?` (`src/mcp/shared/transport.cr:44`), which is
+never closed. `send()` never returns, so the test fiber never arms its `select` timeout.
+
+This is consistent with the design note above: InMemoryTransport is intentionally
+synchronous, but these two specs assert off-fiber dispatch against it. PR #4
+("Add async MCP client request APIs") does **not** cause this — it spawns at the call site
+(`call_tool_async`) as a client-side workaround.
+
+**Fix directions.** (a) Dispatch incoming requests in their own fiber so 483 passes;
+(b) guard `@on_message_initialized.receive?` so an unregistered transport can't deadlock
+the sender, or have 513 register a client `on_message`.
 
 ## Quality Gates
 

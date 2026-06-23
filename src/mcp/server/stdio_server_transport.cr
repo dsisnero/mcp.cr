@@ -31,6 +31,10 @@ module MCP::Server
       @inflight.sub(1)
       if @inflight.get == 0
         begin
+          select
+          when @inflight_zero.receive
+          else
+          end
           @inflight_zero.send(nil)
         rescue
         end
@@ -38,7 +42,7 @@ module MCP::Server
     end
 
     def drain_requests
-      if @inflight.get > 0
+      while @inflight.get > 0
         @inflight_zero.receive
       end
     end

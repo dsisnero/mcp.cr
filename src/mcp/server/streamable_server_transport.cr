@@ -91,6 +91,9 @@ module MCP::Server
     end
 
     def close
+      _, success = @initialized.compare_and_set(true, false)
+      return unless success
+
       @stream_mapping.values.each(&.close)
       @stream_mapping.clear
       @request_to_stream_mapping.clear
