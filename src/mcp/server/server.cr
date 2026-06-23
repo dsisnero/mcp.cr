@@ -41,6 +41,8 @@ module MCP::Server
     @resource_templates : Sync::Map(String, RegisteredResourceTemplate) = Sync::Map(String, RegisteredResourceTemplate).new
     @subscriptions = Set(String).new
     @_tool_router : ToolRouter?
+    @_prompt_router : PromptRouter?
+    @_resource_router : ResourceRouter?
     @completion_handler : (MCP::Protocol::CompleteRequestParams -> MCP::Protocol::CompleteResult)?
     property logging_level : MCP::Protocol::LoggingLevel = MCP::Protocol::LoggingLevel::Info
     getter server_options : ServerOptions
@@ -48,13 +50,39 @@ module MCP::Server
     # Exposes a ToolRouter view over the registered tools, supporting
     # router-style dispatch, enable/disable, and inspection.
     def tool_router : ToolRouter
-      @_tool_router ||= begin
-        router = ToolRouter.new
-        @tools.each do |name, registered|
-          router.add_tool(name, registered.handler)
-        end
-        router
+      @_tool_router ||= build_tool_router
+    end
+
+    def prompt_router : PromptRouter
+      @_prompt_router ||= build_prompt_router
+    end
+
+    def resource_router : ResourceRouter
+      @_resource_router ||= build_resource_router
+    end
+
+    private def build_tool_router : ToolRouter
+      router = ToolRouter.new
+      @tools.each do |name, registered|
+        router.add_tool(name, registered.handler)
       end
+      router
+    end
+
+    private def build_prompt_router : PromptRouter
+      router = PromptRouter.new
+      @prompts.each do |name, registered|
+        router.add_prompt(name, registered.handler)
+      end
+      router
+    end
+
+    private def build_resource_router : ResourceRouter
+      router = ResourceRouter.new
+      @resources.each do |uri, registered|
+        router.add_resource(uri, registered.handler)
+      end
+      router
     end
 
     def initialize(@server_info, @server_options)
@@ -249,12 +277,12 @@ module MCP::Server
     end
 
     def add_prompt(name : String, &handler : MCP::Protocol::GetPromptRequestParams -> MCP::Protocol::GetPromptResult)
-      add_prompt(name, nil, nil, handler)
+      add_prompt(name, nil, nil, &handler)
     end
 
     def add_prompt(name : String, description : String?, arguments : Array(MCP::Protocol::PromptArgument)?, &handler : MCP::Protocol::GetPromptRequestParams -> MCP::Protocol::GetPromptResult)
       prompt = MCP::Protocol::Prompt.new(name, description, arguments)
-      add_prompt(prompt, handler)
+      add_prompt(prompt, &handler)
     end
 
     def add_prompts(prompt_list : Array(RegisteredPrompt))
@@ -263,7 +291,7 @@ module MCP::Server
         raise ArgumentError.new("Server does not support prompts capability.")
       end
 
-      prompt_list.each { |rprompt| add_prompt(rprompt.prompt, rprompt.handler) }
+      prompt_list.each { |rprompt| add_prompt(rprompt.prompt, &rprompt.handler) }
       notify_prompt_list_changed
     end
 
