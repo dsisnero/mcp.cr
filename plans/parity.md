@@ -38,7 +38,7 @@ Sources of truth:
 
 | Feature | Go | Rust | Complexity | Description |
 |---------|----|------|------------|-------------|
-| HTTP Client Transport (Gap 1) | Yes | Yes | Medium | Cannot connect to remote MCP servers over HTTP |
+| ~~HTTP Client Transport (Gap 1)~~ | Yes | Yes | Medium | Done — `HttpClientTransport` in `src/mcp/client/` |
 | ~~Auto list-changed on register/deregister (Gap 3)~~ | Yes | Yes | Small | Done |
 | ~~Spawn-per-request concurrency (Gap 8)~~ | Yes | Yes | Medium | Done |
 | ~~Request cancellation propagation (Gap 9)~~ | Yes | Yes | Medium | Done — `RequestHandlerExtra#cancelled?` + cancel channel routed to handler |
@@ -67,7 +67,7 @@ Sources of truth:
 
 | Feature | Go | Rust | Complexity | Description |
 |---------|----|------|------------|-------------|
-| Handler signature validation (Gap 13) | Yes | Yes | Small | Crystal's type system mostly covers this |
+| ~~Handler signature validation (Gap 13)~~ | Yes | Yes | Small | Skipped — Crystal's type system covers this at compile time |
 | ~~Rich prompt argument schemas (Gap 17)~~ | Yes | Yes | Small | Done — `PromptArgument` struct has `description` field |
 | ~~Elicitation schema builder~~ | No | Yes | Large | Done — `ElicitationSchema` + `ElicitationSchemaBuilder` with `StringSchema`, `NumberSchema`, `IntegerSchema`, `BooleanSchema`, `EnumSchema`, `PrimitiveSchema`; fluent typed API ported from Rust rmcp |
 | ~~Tool output schema~~ | No | Yes | Small | Done — `output_schema` on `Tool` |
