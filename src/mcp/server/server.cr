@@ -155,6 +155,21 @@ module MCP::Server
       add_tool(name, description, input, annotations: annotations, output_schema: oschema, &handler)
     end
 
+    # Typed-handler variant: auto-generates the input schema from the handler's
+    # input type (which must include JSON::Serializable) and auto-deserializes
+    # the raw JSON arguments into the typed input before calling the handler.
+    def add_tool(name : String, description : String,
+                 handler : T -> MCP::Protocol::CallToolResult,
+                 annotations : MCP::Protocol::ToolAnnotations? = nil,
+                 output_schema : MCP::Protocol::Tool::Input? = nil) forall T
+      schema = MCP::Protocol::Tool::Input.from(T)
+
+      add_tool(name, description, schema, annotations: annotations, output_schema: output_schema) do |params|
+        input = T.from_json(params.arguments.try(&.to_json) || "{}")
+        handler.call(input)
+      end
+    end
+
     def add_tool(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
                  annotations : MCP::Protocol::ToolAnnotations? = nil,
                  output_schema : MCP::Protocol::Tool::Input? = nil,
