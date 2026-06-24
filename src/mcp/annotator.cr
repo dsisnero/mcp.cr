@@ -48,7 +48,7 @@
 #   end
 # end
 #
-# MyServer.run   # Starts the server on port 8080 with Streamable HTTP
+# MyServer.run # Starts the server on port 8080 with Streamable HTTP
 # ```
 #
 # The macro system calls `server.add_tool` for each annotated method,

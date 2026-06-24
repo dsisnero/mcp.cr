@@ -7,7 +7,7 @@
 # ```
 # router = MCP::Server::ToolRouter.new
 # router.add_tool("greet", ->(params : CallToolRequestParams) { ... })
-# router.has_tool?("greet")  # => true
+# router.has_tool?("greet") # => true
 # router.disable("greet")
 # router.enable("greet")
 # router.call("greet", params)

@@ -20,7 +20,7 @@
 # EnumSchema.builder(["us", "uk"]).titled.with_default("us").build
 #
 # # Multi-select (untitled)
-# EnumSchema.builder(["a","b","c"]).multi_select.min_items(1).max_items(3).build
+# EnumSchema.builder(["a", "b", "c"]).multi_select.min_items(1).max_items(3).build
 # ```
 
 module MCP::Protocol

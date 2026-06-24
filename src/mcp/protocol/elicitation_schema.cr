@@ -65,9 +65,9 @@ module MCP::Protocol
   # Convenience methods auto-wrap each primitive schema type:
   #
   # ```
-  # builder.required_email("email")          # StringSchema with format: "email"
-  # builder.required_integer("age", 0, 150)  # IntegerSchema with range 0..150
-  # builder.optional_bool("opt_in", false)   # BooleanSchema, default false
+  # builder.required_email("email")         # StringSchema with format: "email"
+  # builder.required_integer("age", 0, 150) # IntegerSchema with range 0..150
+  # builder.optional_bool("opt_in", false)  # BooleanSchema, default false
   # ```
   #
   # Call `build` when all properties are added.

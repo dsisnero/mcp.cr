@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.1] - 2026-06-23
+
+### Fixed
+
+- **Client protocol correlation maps made thread-safe**: Replaced bare `Hash` maps in `MCP::Shared::Protocol` (`@response_handlers`, `@progress_handlers`, `@request_cancellers`) with `Sync::XMap` (CLHT backend).  Under `-Dpreview_mt -Dexecution_context` concurrent `call_tool` from multiple fibers previously raced on these maps — concurrent `Hash#[]=` / `#delete` / iteration could corrupt the bucket array, drop entries, or crash.
+- **Atomic claim-and-remove for request resolution**: `on_response` and the timeout `cancel` closure now use `load_and_delete` instead of a two-step `[]?` + `delete`, preventing a double-completion race where both the response pump and a timeout fiber send to the same result channel.
+- **Atomic canceller take**: `on_notification` cancellation handler uses `load_and_delete` instead of `[]?` + `close` + `delete`.
+- **`Client` is now safe for concurrent use by multiple fibers** — documented in README.  `call_tool`/`request`/`call_tool_async` may be called from many fibers on a single client with no external serialization.
+- **Concurrency spec**: `spec/client/client_concurrency_mt_spec.cr` exercises fan-out + timeout-constraint paths under concurrent fibers (193/0/0/1-pending).
+
 ## [0.5.0] - 2026-06-23
 
 ### Changed
