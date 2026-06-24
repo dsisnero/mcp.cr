@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.0] - 2026-06-23
+
+### Changed
+
+- **Registration maps switched to `Sync::XMap`**: Replaced `Sync::Map` (RWLock + Hash) with `Sync::XMap` (CLHT backend) from `dsisnero/sync-map` 0.1.4 for the four registration maps in `Server` (`@tools`, `@prompts`, `@resources`, `@resource_templates`).  `XMap` is 1.9x faster for small mixed read/write workloads per the sync-map benchmarks (64.6M vs 34.8M ops/s at size 100).  Full Crystal `Hash` surface is now available on `XMap` as of sync-map 0.1.4.
+
 ## [0.4.0] - 2026-06-23
 
 ### Added
