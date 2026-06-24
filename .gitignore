@@ -8,3 +8,7 @@
 # Dependencies will be locked in applications that use them
 /shard.lock
 /mcp
+
+
+# macOS AppleDouble resource fork files
+._*
