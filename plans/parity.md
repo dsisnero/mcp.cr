@@ -51,7 +51,7 @@ Sources of truth:
 | ~~Check-registration-status (Gap 6)~~ | Yes | No | Small | Done |
 | ~~Pagination logic in list handlers (Gap 7)~~ | Yes | Yes | Medium | Done |
 | ~~WithAnnotations builder (Gap 5)~~ | Yes | Yes | Small | Done |
-| ~~Thread-safe registration maps (Gap 10)~~ | Yes | Yes | Small | Done — `@tools`/`@prompts`/`@resources`/`@resource_templates` are `Sync::Map` (dsisnero/sync-map); MT stress spec under `-Dpreview_mt -Dexecution_context` |
+| ~~Thread-safe registration maps (Gap 10)~~ | Yes | Yes | Small | Done — `@tools`/`@prompts`/`@resources`/`@resource_templates` are `Sync::XMap` (dsisnero/sync-map, CLHT backend); best small-map mixed r/w throughput per benchmarks, MT stress spec under `-Dpreview_mt -Dexecution_context` |
 
 ### Tier 3 — Medium
 
@@ -81,10 +81,12 @@ Sources of truth:
 ### Thread-Safe Maps Design Note
 
 Gap 10 is **done**. The Go implementation uses `sync.Map` and the Rust implementation uses
-immutable data structures behind `Arc`. For Crystal, the registration maps (`@tools`,
-`@prompts`, `@resources`, `@resource_templates` in `src/mcp/server/server.cr`) are now backed
-by `Sync::Map` from the [`dsisnero/sync-map`](https://github.com/dsisnero/sync-map) shard
-(`Sync::RWLock(:unchecked)` + `Hash`), the closest Crystal analog to Go's `sync.Map`.
+immutable data structures behind `Arc`. For Crystal, the registration maps are now backed
+by **`Sync::XMap`** from the [`dsisnero/sync-map`](https://github.com/dsisnero/sync-map)
+shard (CLHT — cache-line hash table backend).  `Sync::XMap` was chosen over the default
+`Sync::Map` because registration maps are small (≪1k), mixed read/write at runtime, and
+`XMap` is the fastest backend for that workload per the shard benchmarks (64.6M mixed ops/s
+vs 34.8M for `Sync::Map` at size 100).
 
 This matters because Gap 8 (fiber-per-request dispatch) means handlers now run on their own
 fibers and can mutate registration concurrently. A bare `Hash` races under `-Dpreview_mt`

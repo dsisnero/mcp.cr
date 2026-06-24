@@ -1,7 +1,7 @@
 require "base64"
 require "json"
 require "log"
-require "sync-map"
+require "sync-map/xmap"
 require "../shared"
 
 module MCP::Server
@@ -35,10 +35,10 @@ module MCP::Server
     @_on_close : Proc(Nil) = -> { }
     @_on_logging_level_change : Proc(MCP::Protocol::LoggingLevel, Nil) = ->(level : MCP::Protocol::LoggingLevel) { }
 
-    @tools : Sync::Map(String, RegisteredTool) = Sync::Map(String, RegisteredTool).new
-    @prompts : Sync::Map(String, RegisteredPrompt) = Sync::Map(String, RegisteredPrompt).new
-    @resources : Sync::Map(String, RegisteredResource) = Sync::Map(String, RegisteredResource).new
-    @resource_templates : Sync::Map(String, RegisteredResourceTemplate) = Sync::Map(String, RegisteredResourceTemplate).new
+    @tools : Sync::XMap(String, RegisteredTool) = Sync::XMap(String, RegisteredTool).new
+    @prompts : Sync::XMap(String, RegisteredPrompt) = Sync::XMap(String, RegisteredPrompt).new
+    @resources : Sync::XMap(String, RegisteredResource) = Sync::XMap(String, RegisteredResource).new
+    @resource_templates : Sync::XMap(String, RegisteredResourceTemplate) = Sync::XMap(String, RegisteredResourceTemplate).new
     @subscriptions = Set(String).new
     @_tool_router : ToolRouter?
     @_prompt_router : PromptRouter?
@@ -591,7 +591,7 @@ module MCP::Server
       items = @tools.keys.sort!
       result = paginate(items, nil)
       MCP::Protocol::ListToolsResult.new(
-        tools: result[:items].map { |name| @tools[name].tool },
+        tools: result[:items].map { |name| @tools[name]?.not_nil!.tool },
         next_cursor: result[:next_cursor]
       )
     end
