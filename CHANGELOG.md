@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2] - 2026-06-23
+
+### Fixed
+
+- **Router maps made thread-safe**: `ToolRouter`, `PromptRouter`, and `ResourceRouter` internal `@handlers` and `@disabled` maps now use `Sync::XMap` instead of bare `Hash`/`Set`. Concurrent `add_tool`/`remove_tool`/`enable`/`disable`/`call` from parallel fibers under `-Dpreview_mt` is now safe.
+- **Router concurrency spec**: `spec/server/router_concurrency_mt_spec.cr` exercises concurrent add/remove/call and enable/disable/call (2 specs).
+
 ## [0.5.1] - 2026-06-23
 
 ### Fixed
