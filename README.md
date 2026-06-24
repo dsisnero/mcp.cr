@@ -183,6 +183,11 @@ server.tool_router.enable("greet")
 
 ### Creating a Client
 
+`Client` is safe for concurrent use by multiple fibers.  `call_tool`, `request`,
+`call_tool_async`, and all other public methods may be called from many fibers
+on a single client with no external serialization — every reply is correctly
+matched to its caller.
+
 ```crystal
 require "mcp"
 
