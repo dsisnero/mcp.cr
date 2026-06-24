@@ -1,14 +1,15 @@
 # URI-based router for MCP resource handlers.
 #
 # Matches resources by exact URI and dispatches to the registered
-# handler (`ReadResourceRequestParams -> ReadResourceResult`).
-# See `Server#resource_router` for the integrated view.
+# handler.  Internal state uses `Sync::XMap` — safe for concurrent use.
+
+require "sync-map/xmap"
 
 module MCP::Server
   class ResourceRouter
     alias ResourceHandler = MCP::Protocol::ReadResourceRequestParams -> MCP::Protocol::ReadResourceResult
 
-    @handlers = {} of String => ResourceHandler
+    @handlers = Sync::XMap(String, ResourceHandler).new
 
     def add_resource(uri : String, handler : ResourceHandler)
       @handlers[uri] = handler
@@ -22,7 +23,6 @@ module MCP::Server
       @handlers.has_key?(uri)
     end
 
-    # Dispatch by exact URI.  Raises `KeyError` if unknown.
     def call(uri : String, params : MCP::Protocol::ReadResourceRequestParams) : MCP::Protocol::ReadResourceResult
       handler = @handlers[uri]? || raise KeyError.new("Resource not found: #{uri}")
       handler.call(params)
