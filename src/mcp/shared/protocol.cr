@@ -1,5 +1,6 @@
 require "json"
 require "log"
+require "sync-map/xmap"
 require "./transport"
 require "../protocol/**"
 
@@ -71,9 +72,9 @@ module MCP::Shared
     property transport : Transport?
     @request_handlers = {} of String => (JSONRPCRequest, RequestHandlerExtra) -> Result?
     @notification_handlers = {} of String => JSONRPCNotification ->
-    @response_handlers : Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Hash(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
-    @progress_handlers = {} of RequestId => ProgressCallback
-    @request_cancellers = {} of RequestId => Channel(Nil)
+    @response_handlers : Sync::XMap(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Sync::XMap(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
+    @progress_handlers = Sync::XMap(RequestId, ProgressCallback).new
+    @request_cancellers = Sync::XMap(RequestId, Channel(Nil)).new
     property fallback_request_handler : ((JSONRPCRequest, RequestHandlerExtra) -> Result?)?
     property fallback_notification_handler : (JSONRPCNotification ->)?
 
@@ -120,13 +121,13 @@ module MCP::Shared
     private def do_close
       @response_handlers.clear
       @progress_handlers.clear
-      @request_cancellers.each_value(&.close)
+      @request_cancellers.each { |_, ch| ch.close }
       @request_cancellers.clear
       @transport = nil
       on_close
 
       error = MCP::Protocol::MCPError.new(:connection_closed, "Connection closed")
-      @response_handlers.each_value do |handler|
+      @response_handlers.each do |_, handler|
         handler.call(nil, error)
       end
     end
@@ -137,10 +138,8 @@ module MCP::Shared
       # Handle cancellation by closing the request's cancel channel
       if notification.method == MCP::Protocol::NotificationsCancelled
         if params = notification.params.as?(MCP::Protocol::CancelledNotificationParams)
-          if channel = @request_cancellers[params.request_id]?
-            channel.close
-            @request_cancellers.delete(params.request_id)
-          end
+          channel, loaded = @request_cancellers.load_and_delete(params.request_id)
+          channel.try &.close if loaded
         end
       end
 
@@ -244,16 +243,17 @@ module MCP::Shared
 
     private def on_response(response : JSONRPCResponse?, error : MCP::Protocol::JSONRPCError?)
       message_id = response.try &.id
-      handler = @response_handlers[message_id]?
-      return on_error(Exception.new("Unknown message ID: #{response}")) unless handler
+      return on_error(Exception.new("Unknown message ID: #{response}")) unless message_id
 
-      @response_handlers.delete(message_id)
+      handler, loaded = @response_handlers.load_and_delete(message_id)
+      return on_error(Exception.new("Unknown message ID: #{response}")) unless loaded
+
       @progress_handlers.delete(message_id)
 
       if response
-        handler.call(response, nil)
+        handler.not_nil!.call(response, nil)
       elsif error
-        handler.call(nil, MCP::Protocol::MCPError.new(
+        handler.not_nil!.call(nil, MCP::Protocol::MCPError.new(
           error.error.code,
           error.error.message,
           error.error.data
@@ -324,7 +324,9 @@ module MCP::Shared
       }
 
       cancel = ->(reason : Exception) {
-        @response_handlers.delete(message_id)
+        _, loaded = @response_handlers.load_and_delete(message_id)
+        return unless loaded
+
         @progress_handlers.delete(message_id)
 
         notification = MCP::Protocol::CancelledNotification.new(
