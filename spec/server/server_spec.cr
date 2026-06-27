@@ -177,7 +177,7 @@ describe MCP::Server::Server do
     tool1 = MCP::Protocol::Tool.new("test-tool-1", MCP::Protocol::Tool::Input.new, "Test Tool 1")
     tool2 = MCP::Protocol::Tool.new("test-tool-2", MCP::Protocol::Tool::Input.new, "Test Tool 2")
 
-    handler = ->(_request : MCP::Protocol::CallToolRequestParams) : MCP::Protocol::CallToolResult {
+    handler = ->(_request : MCP::Protocol::CallToolRequestParams, _extra : MCP::Shared::RequestHandlerExtra) : MCP::Protocol::CallToolResult {
       MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("result")] of MCP::Protocol::ContentBlock)
     }
 

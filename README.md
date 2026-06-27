@@ -181,6 +181,52 @@ server.tool_router.disable("greet")
 server.tool_router.enable("greet")
 ```
 
+#### Async tool handlers
+
+Register a tool handler that performs async work (e.g. an HTTP call) without
+blocking the server's request-processing fiber. The handler receives both the
+request params and a `RequestHandlerExtra` for cancellation checking, returning
+a `Channel(AsyncResult(CallToolResult))`:
+
+```crystal
+server.add_tool_async("lookup", "Async name lookup", MCP::Protocol::Tool::Input.new) do |params, extra|
+  channel = Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)).new(1)
+
+  spawn do
+    # do async work: call an API, query a DB, etc.
+    sleep 100.milliseconds
+    result = MCP::Protocol::CallToolResult.new([
+      MCP::Protocol::TextContentBlock.new("Found #{params.name}")
+    ])
+    channel.send(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult).new(value: result))
+    channel.close
+  end
+
+  channel
+end
+
+result = client.call_tool("lookup", {"name" => JSON::Any.new("Alice")})
+```
+
+The `ToolRouter` also supports async handlers with the same enable/disable/remove
+semantics:
+
+```crystal
+router = MCP::Server::ToolRouter.new
+router.add_tool_async("async_greet") do |params, extra|
+  channel = Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)).new(1)
+  spawn do
+    channel.send(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult).new(
+      value: MCP::Protocol::CallToolResult.new([MCP::Protocol::TextContentBlock.new("hi")] of MCP::Protocol::ContentBlock)
+    ))
+    channel.close
+  end
+  channel
+end
+
+router.call("async_greet", params)
+```
+
 ### Creating a Client
 
 `Client` is safe for concurrent use by multiple fibers.  `call_tool`, `request`,

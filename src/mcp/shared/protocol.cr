@@ -407,6 +407,63 @@ module MCP::Shared
       }
     end
 
+    # Register an async request handler that returns a
+    # `Channel(AsyncResult(Result))`. The protocol waits on the channel
+    # (or the request's cancel channel) and sends the appropriate
+    # JSON-RPC response.
+    #
+    # ```
+    # protocol.request_handler_async("my/method") do |params, extra|
+    #   channel = Channel(AsyncResult(Result)).new(1)
+    #   spawn do
+    #     channel.send(AsyncResult(Result).new(value: some_result))
+    #     channel.close
+    #   end
+    #   channel
+    # end
+    # ```
+    def request_handler_async(method : String, &block : (RequestParams, RequestHandlerExtra) -> Channel(AsyncResult(Result)))
+      assert_request_handler_capability(method)
+
+      @request_handlers[method] = ->(request : JSONRPCRequest, extra : RequestHandlerExtra) {
+        if request.responds_to?(:params)
+          result_channel = block.call(request.params, extra)
+
+          if cancel_ch = extra.cancel_channel
+            select_ch = Channel(Nil).new(1)
+
+            spawn do
+              cancel_ch.receive rescue nil
+              select_ch.send(nil) rescue nil
+            end
+
+            async_result : AsyncResult(Result)? = nil
+            select
+            when async_result = result_channel.receive
+            when select_ch.receive
+              raise MCP::Protocol::MCPError.new(:invalid_request, "Request cancelled")
+            end
+
+            r = async_result.not_nil!
+            if r.success?
+              r.value
+            else
+              raise r.error.not_nil!
+            end
+          else
+            async_result = result_channel.receive
+            if async_result.success?
+              async_result.value
+            else
+              raise async_result.error.not_nil!
+            end
+          end
+        else
+          EmptyResult.new
+        end
+      }
+    end
+
     def remove_request_handler(method : String)
       @request_handlers.delete(method)
     end

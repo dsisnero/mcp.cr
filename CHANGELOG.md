@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.3] - 2026-06-27
+
+### Added
+
+- **Async request handler registration**: `Protocol#request_handler_async(method, &block)` registers a handler that returns `Channel(AsyncResult(Result))`. The protocol `select`s between the result channel and the request's cancel channel, owning the wait, cancellation, and response-send lifecycle. Mirrors Rust rmcp's `AsyncTool` pattern.
+
+- **Async tool handler registration**: `Server#add_tool_async(name, description, schema, &handler)` and typed overloads register async tool handlers matching the existing `add_tool` API surface. Handlers receive both `CallToolRequestParams` and `RequestHandlerExtra` and return `Channel(AsyncResult(CallToolResult))`. The wrapper `select`s on the async result channel vs the cancel channel, then sends the appropriate JSON-RPC response.
+
+- **ToolRouter async support**: `ToolRouter#add_tool_async(name, &handler)` registers async tool handlers with the same enable/disable/remove/call semantics as sync handlers. Async tools are wrapped into sync handlers internally via cancel-aware channel select.
+
+### Changed
+
+- **`RegisteredTool` handler signature extended**: The handler proc now receives both `CallToolRequestParams` and `RequestHandlerExtra` (previously only `CallToolRequestParams`). Existing sync `add_tool` overloads wrap their handlers automatically — no user-facing API change. `handle_call_tool` threads the `extra` through to tool handlers, enabling cancellation awareness.
+
 ## [0.5.2] - 2026-06-23
 
 ### Fixed

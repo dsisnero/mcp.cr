@@ -68,7 +68,11 @@ module MCP::Server
     private def build_tool_router : ToolRouter
       router = ToolRouter.new
       @tools.each do |name, registered|
-        router.add_tool(name, registered.handler)
+        handler = registered.handler
+        wrapped = ->(params : MCP::Protocol::CallToolRequestParams) {
+          handler.call(params, MCP::Shared::RequestHandlerExtra.new)
+        }
+        router.add_tool(name, wrapped)
       end
       router
     end
@@ -106,8 +110,8 @@ module MCP::Server
       # Internal handlers for tools
       if capabilities.tools
         request_handler(MCP::Protocol::ToolsList) { |_, _| handle_list_tools }
-        request_handler(MCP::Protocol::ToolsCall) do |request, _|
-          handle_call_tool(request.as(MCP::Protocol::CallToolRequestParams))
+        request_handler(MCP::Protocol::ToolsCall) do |request, extra|
+          handle_call_tool(request.as(MCP::Protocol::CallToolRequestParams), extra)
         end
       end
 
@@ -236,7 +240,84 @@ module MCP::Server
       end
       Log.info { "Registering tool #{name}" }
       tool = MCP::Protocol::Tool.new(name, input_schema, description, annotations: annotations, output_schema: output_schema)
-      @tools[name] = RegisteredTool.new(tool, handler)
+      wrapped = ->(params : MCP::Protocol::CallToolRequestParams, _extra : MCP::Shared::RequestHandlerExtra) {
+        handler.call(params)
+      }
+      @tools[name] = RegisteredTool.new(tool, wrapped)
+      notify_tool_list_changed
+    end
+
+    # Async overload: basic schema
+    def add_tool_async(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
+                       &handler : (MCP::Protocol::CallToolRequestParams, MCP::Shared::RequestHandlerExtra) -> Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)))
+      add_tool_async(name, description, input_schema, annotations: nil, output_schema: nil, &handler)
+    end
+
+    # Async overload: auto-generate input schema from a Crystal type
+    def add_tool_async(name : String, description : String, input_type : T.class,
+                       annotations : MCP::Protocol::ToolAnnotations? = nil,
+                       output_schema : MCP::Protocol::Tool::Input? = nil,
+                       &handler : (MCP::Protocol::CallToolRequestParams, MCP::Shared::RequestHandlerExtra) -> Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult))) forall T
+      input = MCP::Protocol::Tool::Input.from(input_type)
+      add_tool_async(name, description, input, annotations: annotations, output_schema: output_schema, &handler)
+    end
+
+    # Async overload: auto-generate both input and output schemas
+    def add_tool_async(name : String, description : String, input_type : T.class, output_type : U.class,
+                       annotations : MCP::Protocol::ToolAnnotations? = nil,
+                       &handler : (MCP::Protocol::CallToolRequestParams, MCP::Shared::RequestHandlerExtra) -> Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult))) forall T, U
+      input = MCP::Protocol::Tool::Input.from(input_type)
+      oschema = MCP::Protocol::Tool::Output.from(output_type)
+      add_tool_async(name, description, input, annotations: annotations, output_schema: oschema, &handler)
+    end
+
+    # Main async add_tool funnel
+    def add_tool_async(name : String, description : String, input_schema : MCP::Protocol::Tool::Input,
+                       annotations : MCP::Protocol::ToolAnnotations? = nil,
+                       output_schema : MCP::Protocol::Tool::Input? = nil,
+                       &handler : (MCP::Protocol::CallToolRequestParams, MCP::Shared::RequestHandlerExtra) -> Channel(MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)))
+      if capabilities.tools.nil?
+        Log.error { " Failed to add async tool #{name}: Server does not support tools capability" }
+        raise ArgumentError.new("Server does not support tools capability. Enable it in ServerOptions")
+      end
+      Log.info { "Registering async tool #{name}" }
+      tool = MCP::Protocol::Tool.new(name, input_schema, description, annotations: annotations, output_schema: output_schema)
+
+      wrapped = ->(params : MCP::Protocol::CallToolRequestParams, extra : MCP::Shared::RequestHandlerExtra) {
+        result_channel = handler.call(params, extra)
+
+        if cancel_ch = extra.cancel_channel
+          select_ch = Channel(Nil).new(1)
+
+          spawn do
+            cancel_ch.receive rescue nil
+            select_ch.send(nil) rescue nil
+          end
+
+          async_result : MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)? = nil
+          select
+          when async_result = result_channel.receive
+          when select_ch.receive
+            raise MCP::Protocol::MCPError.new(:invalid_request, "Request cancelled")
+          end
+
+          r = async_result.not_nil!
+          if r.success?
+            r.value.not_nil!
+          else
+            raise r.error.not_nil!
+          end
+        else
+          async_result = result_channel.receive
+          if async_result.success?
+            async_result.value.not_nil!
+          else
+            raise async_result.error.not_nil!
+          end
+        end
+      }
+
+      @tools[name] = RegisteredTool.new(tool, wrapped)
       notify_tool_list_changed
     end
 
@@ -618,11 +699,11 @@ module MCP::Server
       {items: slice, next_cursor: next_cursor}
     end
 
-    private def handle_call_tool(request : MCP::Protocol::CallToolRequestParams) : MCP::Protocol::CallToolResult
+    private def handle_call_tool(request : MCP::Protocol::CallToolRequestParams, extra : MCP::Shared::RequestHandlerExtra) : MCP::Protocol::CallToolResult
       Log.debug { "Handling tool call request for tool: #{request.name}" }
       tool = @tools[request.name]? || raise "Tool not found: #{request.name}"
       Log.trace { "Executing tool #{request.name} with input: #{request.arguments.to_json}" }
-      tool.handler.call(request)
+      tool.handler.call(request, extra)
     end
 
     private def handle_list_prompts : MCP::Protocol::ListPromptsResult
@@ -743,7 +824,7 @@ module MCP::Server
       end
     end
 
-    record RegisteredTool, tool : MCP::Protocol::Tool, handler : (MCP::Protocol::CallToolRequestParams) -> MCP::Protocol::CallToolResult
+    record RegisteredTool, tool : MCP::Protocol::Tool, handler : (MCP::Protocol::CallToolRequestParams, MCP::Shared::RequestHandlerExtra) -> MCP::Protocol::CallToolResult
     record RegisteredPrompt, prompt : MCP::Protocol::Prompt, handler : (MCP::Protocol::GetPromptRequestParams) -> MCP::Protocol::GetPromptResult
     record RegisteredResource, resource : MCP::Protocol::Resource, handler : (MCP::Protocol::ReadResourceRequestParams) -> MCP::Protocol::ReadResourceResult
     record RegisteredResourceTemplate, template : MCP::Protocol::ResourceTemplate, handler : (MCP::Protocol::ReadResourceRequestParams) -> MCP::Protocol::ReadResourceResult
