@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.5] - 2026-06-27
+
+### Added
+
+- **`MCP::Client::StreamableHttpClientTransport`**: Streamable HTTP client transport for connecting to MCP servers over a single HTTP endpoint. Supports session management (`Mcp-Session-Id` capture and replay), `Accept: application/json, text/event-stream` headers, 202 Accepted handling, JSON response dispatch via `_on_message`, and best-effort session cleanup on close via DELETE. Constructor accepts `URI` or `String`; `from_uri(url)` convenience factory.
+
+  ```crystal
+  transport = MCP::Client::StreamableHttpClientTransport.from_uri("http://host:port/mcp")
+  transport.on_message { |msg| handle(msg) }
+  transport.start
+  transport.send(PingRequest.new)
+  transport.close
+  ```
+
+  Spec: `spec/client/streamable_http_client_transport_spec.cr` with embedded HTTP::Server integration tests (5 specs).
+
 ## [0.5.4] - 2026-06-27
 
 ### Changed
