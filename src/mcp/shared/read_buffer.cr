@@ -15,11 +15,13 @@ module MCP::Shared
 
     # Attempts to read a complete JSON-RPC message
     def read_message : JSONRPCMessage?
-      return nil if @buffer.empty?
-      slice = @buffer.to_slice
-      index = slice.index('\n'.ord.to_u8)
+      unread = unread_slice
+      return nil if unread.empty?
+      index = unread.index('\n'.ord.to_u8)
       return nil if index.nil?
+
       message = @buffer.gets
+      compact_consumed_bytes
 
       return nil if message.nil? || message.blank?
 
@@ -28,6 +30,29 @@ module MCP::Shared
 
     def clear
       @buffer.clear
+    end
+
+    private def unread_slice : Bytes
+      slice = @buffer.to_slice
+      pos = @buffer.pos
+      return Bytes.empty if pos >= slice.size
+      slice[pos, slice.size - pos]
+    end
+
+    private def compact_consumed_bytes
+      slice = @buffer.to_slice
+      pos = @buffer.pos
+      return if pos <= 0
+
+      if pos >= slice.size
+        @buffer.clear
+        return
+      end
+
+      remaining = slice[pos, slice.size - pos]
+      @buffer.clear
+      @buffer.write(remaining)
+      @buffer.rewind
     end
   end
 end
