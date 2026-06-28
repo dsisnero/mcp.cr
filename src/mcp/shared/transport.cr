@@ -37,7 +37,7 @@ module MCP::Shared
     protected property _on_message : Proc(JSONRPCMessage, Nil)
 
     def initialize
-      @on_message_initialized = Channel(Nil).new(1)
+      @on_message_initialized = Channel(Bool).new(1)
       @_on_message = ->(_msg : JSONRPCMessage) { } # work-around to satisfy type system
 
       @_on_message = ->(msg : JSONRPCMessage) {
@@ -71,7 +71,7 @@ module MCP::Shared
       }
 
       unless @on_message_initialized.closed?
-        @on_message_initialized.send(nil)
+        @on_message_initialized.send(true)
         @on_message_initialized.close
       end
     end

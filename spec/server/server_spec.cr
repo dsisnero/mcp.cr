@@ -967,7 +967,7 @@ describe MCP::Server::Server do
 
   it "RequestHandlerExtra#cancelled? returns true after cancel channel is closed" do
     extra = MCP::Shared::RequestHandlerExtra.new
-    ch = Channel(Nil).new
+    ch = Channel(Bool).new
     extra.cancel_channel = ch
     extra.cancelled?.should be_false
     ch.close

@@ -287,28 +287,31 @@ module MCP::Server
         result_channel = handler.call(params, extra)
 
         if cancel_ch = extra.cancel_channel
-          select_ch = Channel(Nil).new(1)
+          select_ch = Channel(Bool).new
 
           spawn do
-            cancel_ch.receive rescue nil
-            select_ch.send(nil) rescue nil
+            cancel_ch.receive?
+            select_ch.close
           end
 
-          async_result : MCP::Shared::AsyncResult(MCP::Protocol::CallToolResult)? = nil
           select
-          when async_result = result_channel.receive
-          when select_ch.receive
+          when async_result = result_channel.receive?
+            unless async_result
+              raise MCP::Protocol::MCPError.new(:internal_error, "Handler closed result channel without a result")
+            end
+            if async_result.success?
+              async_result.value.not_nil!
+            else
+              raise async_result.error.not_nil!
+            end
+          when select_ch.receive?
             raise MCP::Protocol::MCPError.new(:invalid_request, "Request cancelled")
           end
-
-          r = async_result.not_nil!
-          if r.success?
-            r.value.not_nil!
-          else
-            raise r.error.not_nil!
-          end
         else
-          async_result = result_channel.receive
+          async_result = result_channel.receive?
+          unless async_result
+            raise MCP::Protocol::MCPError.new(:internal_error, "Handler closed result channel without a result")
+          end
           if async_result.success?
             async_result.value.not_nil!
           else

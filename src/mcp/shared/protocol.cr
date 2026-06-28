@@ -26,7 +26,7 @@ module MCP::Shared
 
   class RequestHandlerExtra
     include JSON::Serializable::Unmapped
-    property cancel_channel : Channel(Nil)?
+    property cancel_channel : Channel(Bool)?
     property extensions : Hash(String, JSON::Any)
 
     def initialize
@@ -74,7 +74,7 @@ module MCP::Shared
     @notification_handlers = {} of String => JSONRPCNotification ->
     @response_handlers : Sync::XMap(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)) = Sync::XMap(RequestId, Proc(JSONRPCResponse?, Exception?, Nil)).new
     @progress_handlers = Sync::XMap(RequestId, ProgressCallback).new
-    @request_cancellers = Sync::XMap(RequestId, Channel(Nil)).new
+    @request_cancellers = Sync::XMap(RequestId, Channel(Bool)).new
     property fallback_request_handler : ((JSONRPCRequest, RequestHandlerExtra) -> Result?)?
     property fallback_notification_handler : (JSONRPCNotification ->)?
 
@@ -176,7 +176,7 @@ module MCP::Shared
       end
 
       transport = @transport
-      cancel_channel = Channel(Nil).new
+      cancel_channel = Channel(Bool).new
       rid = request.id
       @request_cancellers[rid] = cancel_channel if rid
       extra = RequestHandlerExtra.new
@@ -341,10 +341,10 @@ module MCP::Shared
       timeout = options.try(&.timeout) || DEFAULT_REQUEST_TIMEOUT
 
       begin
-        transport_chan = Channel(Nil).new(1)
+        transport_chan = Channel(Bool).new(1)
         spawn do
           transport.send(message)
-          transport_chan.send(nil)
+          transport_chan.send(true)
         end
         select
         when transport_chan.receive
@@ -430,28 +430,31 @@ module MCP::Shared
           result_channel = block.call(request.params, extra)
 
           if cancel_ch = extra.cancel_channel
-            select_ch = Channel(Nil).new(1)
+            select_ch = Channel(Bool).new
 
             spawn do
-              cancel_ch.receive rescue nil
-              select_ch.send(nil) rescue nil
+              cancel_ch.receive?
+              select_ch.close
             end
 
-            async_result : AsyncResult(Result)? = nil
             select
-            when async_result = result_channel.receive
-            when select_ch.receive
+            when async_result = result_channel.receive?
+              unless async_result
+                raise MCP::Protocol::MCPError.new(:internal_error, "Handler closed result channel without a result")
+              end
+              if async_result.success?
+                async_result.value
+              else
+                raise async_result.error.not_nil!
+              end
+            when select_ch.receive?
               raise MCP::Protocol::MCPError.new(:invalid_request, "Request cancelled")
             end
-
-            r = async_result.not_nil!
-            if r.success?
-              r.value
-            else
-              raise r.error.not_nil!
-            end
           else
-            async_result = result_channel.receive
+            async_result = result_channel.receive?
+            unless async_result
+              raise MCP::Protocol::MCPError.new(:internal_error, "Handler closed result channel without a result")
+            end
             if async_result.success?
               async_result.value
             else

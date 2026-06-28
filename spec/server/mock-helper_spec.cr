@@ -5,7 +5,7 @@ class MockConnection < MCP::SSE::Connection
 
   def initialize
     io = IO::Memory.new
-    @closed_channel = Channel(Nil).new(1)
+    @closed_channel = Channel(Bool).new(1)
     @closed = false
     super(io)
   end
@@ -16,7 +16,7 @@ class MockConnection < MCP::SSE::Connection
 
   def close
     @closed = true
-    @closed_channel.send(nil) rescue nil
+    @closed_channel.send(true) rescue nil
   end
 
   def closed?

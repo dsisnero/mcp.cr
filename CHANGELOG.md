@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.4] - 2026-06-27
+
+### Changed
+
+- **`Channel(Nil)` → `Channel(Bool)` for all cancel/signal channels**: Follows the `crystal-concurrency` skill rule #1 — `receive?` uses `nil` as the "closed" sentinel, making `Channel(Nil)` ambiguous (can't distinguish "got a value" from "channel closed"). All cancellation channels in `RequestHandlerExtra`, `@request_cancellers`, `@inflight_zero`, `@closed_channel`, and `@on_message_initialized` now use `Channel(Bool)`.
+
+- **Async wrappers use `receive?` + `close` pattern**: The cancel bridge in `request_handler_async`, `Server#add_tool_async`, and `ToolRouter#add_tool_async` now uses `cancel_ch.receive?` (close-safe, returns nil) → `select_ch.close` (broadcast) instead of the fragile `cancel_ch.receive rescue nil` → `select_ch.send(nil) rescue nil` pattern. The select uses `receive?` for both result and cancel channels.
+
 ## [0.5.3] - 2026-06-27
 
 ### Added

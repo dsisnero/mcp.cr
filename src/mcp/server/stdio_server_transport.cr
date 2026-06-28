@@ -10,7 +10,7 @@ module MCP::Server
     private getter write_channel : Channel(MCP::Protocol::JSONRPCMessage)
     @initialized : Atomic(Bool)
     @inflight : Atomic(Int32)
-    @inflight_zero : Channel(Nil)
+    @inflight_zero : Channel(Bool)
 
     def initialize(@input, @output)
       super()
@@ -20,7 +20,7 @@ module MCP::Server
       @read_channel = Channel(Bytes).new(50)
       @write_channel = Channel(MCP::Protocol::JSONRPCMessage).new(50)
       @inflight = Atomic(Int32).new(0)
-      @inflight_zero = Channel(Nil).new(1)
+      @inflight_zero = Channel(Bool).new(1)
     end
 
     def begin_request
@@ -35,7 +35,7 @@ module MCP::Server
           when @inflight_zero.receive
           else
           end
-          @inflight_zero.send(nil)
+          @inflight_zero.send(true)
         rescue
         end
       end

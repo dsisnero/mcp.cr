@@ -6,7 +6,7 @@ module MCP
     class Connection
       @mutex = Mutex.new
       @closed = false
-      @closed_channel = Channel(Nil).new(1)
+      @closed_channel = Channel(Bool).new(1)
       property on_close : Proc(Nil) = -> { }
 
       def initialize(@io : IO)
@@ -31,7 +31,7 @@ module MCP
         @closed = true
         @on_close.call
         @io.close rescue nil
-        @closed_channel.send(nil) rescue nil
+        @closed_channel.send(true) rescue nil
       end
 
       def closed?
@@ -39,7 +39,7 @@ module MCP
       end
 
       def wait
-        @closed_channel.receive unless closed?
+        @closed_channel.receive? unless closed?
       end
 
       def send(data : String, id : String? = nil, event : String? = nil, retry : Int32? = nil)
