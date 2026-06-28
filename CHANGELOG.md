@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.7] - 2026-06-27
+
+### Fixed
+
+- **`ReadBuffer` stale newline detection bug**: `read_message` searched the entire `IO::Memory` backing slice for `\n`, including bytes already consumed by prior `gets` calls. When a second message arrived in fragments (common for large `tools/list` payloads), the stale newline from the first message triggered premature JSON parsing of the incomplete second message, raising `JSON::ParseException`. Fixed by:
+  1. Scanning only the unread suffix `slice[pos, size - pos]` for newline detection
+  2. Compacting consumed bytes after each successful `gets` via `compact!` (clear + write remaining + rewind)
+
+  Regression spec: `spec/shared/read_buffer_spec.cr` (fragmented second message round-trip).
+
 ## [0.5.6] - 2026-06-27
 
 ### Changed
