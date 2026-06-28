@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.6] - 2026-06-27
+
+### Changed
+
+- **`StreamableHttpClientTransport` refactored to actor-fiber pattern**: `send` is now non-blocking — messages are queued to an actor fiber that runs a for-select event loop (`@inbox.receive?` | `@done.receive?`). The actor fiber owns the HTTP client and session ID, POSTs outbound JSON-RPC, and dispatches inbound responses via `_on_message`. `close` signals the done channel; the actor drains the inbox, runs best-effort session cleanup (DELETE), and calls `_on_close`. Follows crystal-concurrency skill rules: `Channel(Bool)` for `@done`, `receive?` in select, `close` for broadcast cancellation.
+
 ## [0.5.5] - 2026-06-27
 
 ### Added

@@ -1,17 +1,20 @@
 # MCP Streamable HTTP client transport: connects to a remote MCP server
-# over a single streamable HTTP endpoint.
+# over a single streamable HTTP endpoint using an actor-fiber pattern.
 #
-# On `send`, POSTs JSON-RPC messages to the endpoint URL with the
-# `Accept: application/json, text/event-stream` and
-# `Mcp-Session-Id` headers as required by the MCP Streamable HTTP spec.
-# Inbound JSON-RPC messages (responses and server-initiated
-# notifications) are dispatched through the inherited `on_message`
-# callback.
+# An actor fiber owns the HTTP client and session state.  Outbound
+# messages are queued via a channel; the actor fiber POSTs them and
+# dispatches inbound JSON-RPC responses through the inherited
+# `on_message` callback.  This keeps `send` non-blocking — the protocol
+# layer waits for responses on its own channels, not on the HTTP call.
 #
 # Session management: a `Mcp-Session-Id` header returned by the
 # server on the initialize response is captured and replayed on all
 # subsequent requests. If no session ID is returned, the transport
 # operates in stateless mode.
+#
+# On `close`, the done channel is closed, signalling the actor fiber
+# to drain its inbox, clean up the session (DELETE best-effort), and
+# call `_on_close`.
 #
 # ```
 # transport = MCP::Client::StreamableHttpClientTransport.from_uri("http://host:port/mcp")
@@ -34,9 +37,10 @@ module MCP::Client
 
     getter uri : URI
 
-    @http_client : HTTP::Client?
     @session_id : String?
-    @done : Channel(Bool)
+    @started = false
+    @done = Channel(Bool).new
+    @inbox = Channel(MCP::Protocol::JSONRPCMessage).new(16)
 
     def self.from_uri(url : String) : self
       uri = URI.parse(url)
@@ -45,30 +49,75 @@ module MCP::Client
 
     def initialize(@uri : URI)
       super()
-      @done = Channel(Bool).new
     end
 
     def initialize(url : String)
       initialize(URI.parse(url))
     end
 
+    # Spawns the actor fiber that owns all transport state (HTTP client,
+    # session ID) and runs the for-select event loop.
     def start
-      # Transport is stateless — initialization happens on first send.
-      # The HTTP client is created lazily on first use.
+      return if @started
+      @started = true
+      spawn(name: "streamable-http-client") { run_loop }
     end
 
+    # Enqueue a message for the actor fiber to POST.  Non-blocking.
     def send(message : MCP::Protocol::JSONRPCMessage)
-      client = @http_client ||= HTTP::Client.new(@uri)
       raise "Transport closed" if @done.closed?
+      @inbox.send(message)
+    end
 
+    # Close the done channel.  The actor fiber will drain the inbox,
+    # clean up the session, and call _on_close.  If start was never
+    # called, close immediately.
+    def close
+      if @done.closed?
+        return
+      end
+      @done.close
+      _on_close.call unless @started
+    end
+
+    # ---- Actor fiber ---------------------------------------------------
+
+    private def run_loop
+      client = HTTP::Client.new(@uri)
+
+      begin
+        loop do
+          select
+          when msg = @inbox.receive?
+            break unless msg
+            process(client, msg)
+          when @done.receive?
+            break
+          end
+        end
+
+        drain_inbox(client)
+      rescue ex
+        _on_error.call(ex)
+      end
+
+      cleanup(client)
+    end
+
+    private def drain_inbox(client : HTTP::Client)
+      while msg = @inbox.receive?
+        process(client, msg) if msg
+      end
+    end
+
+    private def process(client : HTTP::Client, message : MCP::Protocol::JSONRPCMessage)
       json_body = message.to_json
       headers = build_headers
 
       response = client.post(@uri.request_target, headers: headers, body: json_body)
-
       handle_response(response, message)
-    rescue ex : IO::Error
-      raise ex
+    rescue ex
+      _on_error.call(ex)
     end
 
     private def build_headers : HTTP::Headers
@@ -102,32 +151,26 @@ module MCP::Client
 
       # Error status
       unless response.success?
-        raise "HTTP #{status}: #{body}"
+        _on_error.call(Exception.new("HTTP #{status}: #{body}"))
+        return
       end
 
-      # Parse JSON body
+      # Parse JSON body and dispatch
       unless body.empty?
         msg = MCP::Protocol::JSONRPCMessage.from_json(body)
         _on_message.call(msg)
       end
     end
 
-    def close
-      @done.close
-
-      # Attempt session cleanup via DELETE (best-effort, 5s timeout)
+    private def cleanup(client : HTTP::Client)
+      # Best-effort session cleanup via DELETE
       if sid = @session_id
-        spawn do
-          client = @http_client
-          if client
-            hdr = HTTP::Headers.new
-            hdr[MCP_SESSION_ID] = sid
-            client.delete(@uri.request_target, headers: hdr) rescue nil
-          end
-        end
+        hdr = HTTP::Headers.new
+        hdr[MCP_SESSION_ID] = sid
+        client.delete(@uri.request_target, headers: hdr) rescue nil
       end
 
-      @http_client.try &.close rescue nil
+      client.close rescue nil
       _on_close.call
     end
   end
